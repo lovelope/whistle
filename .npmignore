@@ -54,7 +54,8 @@ node_modules
 .gitignore
 .npmignore
 .travis.yml
-.eslintrc.js
+.eslintrc
+.editorconfig
 .eslintignore
 .babelrc
 test
@@ -62,6 +63,9 @@ assets/launcher
 /biz/webui/htdocs/src
 /docs
 /.history
+CHANGELOG.md
+Dockerfile
+/README-zh_CN.md
 
 
 # Coveralls

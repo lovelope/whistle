@@ -17,7 +17,7 @@ var dataCenter = require('./data-center');
 var storage = require('./storage');
 
 var TREE_ROW_HEIGHT = 24;
-var ROW_STYLE = { outline: 'none'};
+var ROW_STYLE = { outline: 'none' };
 var columnState = {};
 var CMD_RE = /^:dump\s+(\d{1,15})\s*$/;
 var NOT_BOLD_RULES = {
@@ -29,18 +29,19 @@ var NOT_BOLD_RULES = {
   resWriteRaw: 1,
   responseFor: 1,
   style: 1,
-  G: 1
+  G: 1,
+  ignore: 1
 };
 var contextMenuList = [
   {
     name: 'Open',
     list: [
+      { name: 'New Tab' },
+      { name: 'QR Code' },
       { name: 'Overview' },
       { name: 'Inspectors' },
-      { name: 'Frames' },
       { name: 'Timeline' },
-      { name: 'New Tab'},
-      { name: 'QR Code' },
+      { name: 'Composer' },
       { name: 'Preview' },
       { name: 'Source' },
       { name: 'Tree View', action: 'toggleView' }
@@ -48,6 +49,7 @@ var contextMenuList = [
   },
   {
     name: 'Copy',
+    shiftToEdit: true,
     list: [
       { name: 'Host' },
       { name: 'Path' },
@@ -72,7 +74,7 @@ var contextMenuList = [
   },
   {
     name: 'Remove',
-    list:  [
+    list: [
       { name: 'All' },
       { name: 'This' },
       { name: 'Others' },
@@ -85,7 +87,7 @@ var contextMenuList = [
   },
   {
     name: 'Filter',
-    list:  [
+    list: [
       { name: 'Edit' },
       { name: 'Exclude All Such Host', action: 'excludeHost' },
       { name: 'Exclude All Such URL', action: 'excludeUrl' }
@@ -96,6 +98,7 @@ var contextMenuList = [
     list: [
       { name: 'Abort' },
       { name: 'Replay' },
+      { name: 'Replay Times', action: 'replayTimes' },
       { name: 'Compose' },
       { name: 'Mark' },
       { name: 'Unmark' }
@@ -128,7 +131,7 @@ function stopPropagation(e) {
   e.preventDefault();
 }
 
-var getFocusItemList = function(curItem) {
+var getFocusItemList = function (curItem) {
   if (!curItem || curItem.selected) {
     return;
   }
@@ -136,7 +139,7 @@ var getFocusItemList = function(curItem) {
 };
 
 var Spinner = React.createClass({
-  render: function() {
+  render: function () {
     var order = this.props.order;
     var desc = order == 'desc';
     if (!desc && order != 'asc') {
@@ -144,8 +147,18 @@ var Spinner = React.createClass({
     }
     return (
       <div className="w-spinner">
-        <span className={'glyphicon glyphicon-triangle-top' + (order ? ' spinner-' + order : '')}></span>
-        <span className={'glyphicon glyphicon-triangle-bottom' + (order ? ' spinner-' + order : '')}></span>
+        <span
+          className={
+            'glyphicon glyphicon-triangle-top' +
+            (order ? ' spinner-' + order : '')
+          }
+        ></span>
+        <span
+          className={
+            'glyphicon glyphicon-triangle-bottom' +
+            (order ? ' spinner-' + order : '')
+          }
+        ></span>
       </div>
     );
   }
@@ -158,10 +171,14 @@ function getColStyle(col, style) {
 }
 
 function getClassName(data) {
-  return getStatusClass(data) + ' w-req-data-item'
-    + (data.isHttps ? ' w-tunnel' : '')
-      + (hasRules(data) ? ' w-has-rules' : '')
-        + (data.selected ? ' w-selected' : '');
+  return (
+    getStatusClass(data) +
+    ' w-req-data-item' +
+    (data.isHttps ? ' w-tunnel' : '') +
+    (hasRules(data) ? ' w-has-rules' : '') +
+    (data.selected ? ' w-selected' : '') +
+    (data.isPR ? ' w-pr' : '')
+  );
 }
 
 function isVisible(item) {
@@ -178,10 +195,12 @@ function hasRules(data) {
   if (!rules) {
     return false;
   }
-  var keys = Object.keys(data.rules);
+  var keys = Object.keys(rules);
   if (keys && keys.length) {
     for (var i = 0, len = keys.length; i < len; i++) {
-      if (rules[keys[i]] && !NOT_BOLD_RULES[keys[i]]) {
+      var rule = rules[keys[i]];
+      var enable = rule && rule.list && rule.list.length === 1 && rule.list[0].matcher;
+      if (rule && !NOT_BOLD_RULES[keys[i]] && enable !== 'enable://capture' &&  enable !== 'enable://intercept') {
         return true;
       }
     }
@@ -193,7 +212,7 @@ function hasRules(data) {
 function getStatusClass(data) {
   var type = '';
   var headers = data.res.headers;
-  switch(util.getContentType(headers)) {
+  switch (util.getContentType(headers)) {
   case 'JS':
     type = 'warning';
     break;
@@ -266,8 +285,17 @@ function getIcon(data, className) {
     return <span className="icon-leaf glyphicon glyphicon-hourglass" />;
   }
   var type = getType(className);
-  var status = type === 'ERROR' && data.res && data.res.statusCode;
-  return <span className={type ? 'w-type-icon' : 'glyphicon glyphicon-file'}>{status || type || null}</span>;
+  var status = data.res && data.res.statusCode;
+  if (type !== 'ERROR' && status != 101) {
+    status = null;
+  }
+  return (
+    <span
+      className={status || type ? 'w-type-icon' : 'glyphicon glyphicon-file'}
+    >
+      {status || type || null}
+    </span>
+  );
 }
 
 function getFilename(item, type) {
@@ -278,12 +306,19 @@ function getFilename(item, type) {
   if (name) {
     index = name.lastIndexOf('.');
     if (index !== -1 && index < name.length - 1) {
-      return name.substring(0, index) + '_' + type + (isRaw ? '.txt' : '.' + name.substring(index + 1));
+      return (
+        name.substring(0, index) +
+        '_' +
+        type +
+        (isRaw ? '.txt' : '.' + name.substring(index + 1))
+      );
     }
   } else {
     name = url.substring(0, url.indexOf('/'));
   }
-  var suffix = isRaw ? '' : util.getExtension(type[2] === 'q' ? item.req.headers : item.res.headers);
+  var suffix = isRaw
+    ? ''
+    : util.getExtension(type[2] === 'q' ? item.req.headers : item.res.headers);
   return name + '_' + type + suffix;
 }
 
@@ -292,30 +327,52 @@ function removeLighhight(elem) {
 }
 
 var Row = React.createClass({
-  render: function() {
+  render: function () {
     var p = this.props;
     var order = p.order;
     var draggable = p.draggable;
     var columnList = p.columnList;
     var item = p.item;
     var style = item.style;
-    return (<table  className="table" key={p.key} style={p.style}><tbody>
-              <tr tabIndex="-1" draggable={draggable} data-id={item.id} className={getClassName(item)} style={ROW_STYLE}>
-                <th className="order" scope="row" style={style}>{order}</th>
-                {columnList.map(function(col) {
-                  var name = col.name;
-                  var className = col.className;
-                  var value = name === 'hostIp' ? util.getServerIp(item) : item[name];
-                  var colStyle = getColStyle(col, style);
-                  return (<td key={name} className={className} style={colStyle} title={col.showTitle ? value : undefined}>{value}</td>);
-                })}
-              </tr>
-            </tbody></table>);
+    return (
+      <table className="table" key={p.key} style={p.style}>
+        <tbody>
+          <tr
+            tabIndex="-1"
+            draggable={draggable}
+            data-id={item.id}
+            className={getClassName(item)}
+            style={ROW_STYLE}
+          >
+            <th className="order" scope="row" style={style}>
+              {order}
+            </th>
+            {columnList.map(function (col) {
+              var name = col.name;
+              var className = col.className;
+              var value =
+                name === 'hostIp' ? util.getServerIp(item) : item[name];
+              var colStyle = getColStyle(col, style);
+              return (
+                <td
+                  key={name}
+                  className={className}
+                  style={colStyle}
+                  title={col.showTitle ? value : undefined}
+                >
+                  {value}
+                </td>
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
+    );
   }
 });
 
 var ReqData = React.createClass({
-  getInitialState: function() {
+  getInitialState: function () {
     var dragger = settings.getDragger();
     dragger.onDrop = dragger.onDrop.bind(this);
     return {
@@ -324,7 +381,7 @@ var ReqData = React.createClass({
       dragger: dragger
     };
   },
-  componentDidUpdate: function() {
+  componentDidUpdate: function () {
     if (storage.get('disabledHNR') === '1') {
       return;
     }
@@ -341,70 +398,126 @@ var ReqData = React.createClass({
     var visibleMap = {};
     var list = this.visibleList;
     var lightList = [];
+    var visibleLeafMap = {};
+    var item;
     for (var i = this.startIndex; i <= this.endIndex; i++) {
-      var item = list[i];
+      item = list[i];
       if (item) {
         if (!item.parent) {
           $.extend(leafMap, item.map);
           visibleMap[item.path] = 1;
         } else if (!item.data) {
           visibleMap[item.path] = 1;
-        } else if (curNewIdList.indexOf(item.data.id) !== -1 && isVisibleInTree(item)) {
-          lightList.push(item);
+        } else if (isVisibleInTree(item)) {
+          visibleLeafMap[item.data.id] = 1;
+          if (curNewIdList.indexOf(item.data.id) !== -1) {
+            lightList.push(item);
+          }
         }
       }
     }
-    curNewIdList.forEach(function(id) {
-      var item = leafMap[id];
-      if (item) {
-        var parent = item.parent;
-        while(parent) {
+    var overflow = dataCenter.overflowCount();
+    if (overflow > 0) {
+      var hasChanged;
+      var allList = modal.list;
+      var len = allList.length;
+      for (i = 0; i < len; i++) {
+        item = allList[i];
+        if (
+          item.hide ||
+          (!item.active && !visibleLeafMap[item.id] && !leafMap[item.id])
+        ) {
+          allList.splice(i, 1);
+          --overflow;
+          --i;
+          --len;
+          hasChanged = true;
+          if (overflow <= 0) {
+            break;
+          }
+        }
+      }
+      if (overflow > 0) {
+        len = allList.length;
+        for (i = 0; i < len; i++) {
+          item = allList[i];
+          if (!item.active && !visibleLeafMap[item.id]) {
+            allList.splice(i, 1);
+            --overflow;
+            --i;
+            --len;
+            hasChanged = true;
+            if (overflow <= 0) {
+              break;
+            }
+          }
+        }
+      }
+      if (hasChanged) {
+        modal.updateTree();
+        events.trigger('updateGlobal');
+      }
+    }
+    curNewIdList.forEach(function (id) {
+      var newItem = leafMap[id];
+      if (newItem) {
+        var parent = newItem.parent;
+        while (parent) {
           if (visibleMap[parent.path]) {
             visibleMap[parent.path] = 0;
             lightList.push(parent);
           }
-          if (lightList.indexOf(item) === -1 && isVisibleInTree(item)) {
-            lightList.push(item);
+          if (lightList.indexOf(newItem) === -1 && isVisibleInTree(newItem)) {
+            lightList.push(newItem);
           }
           parent = parent.parent;
         }
-
       }
     });
     var overCount = Math.floor((lightList.length - 60) / 2);
     if (overCount > 0) {
       lightList = lightList.slice(overCount, -overCount);
     }
-    lightList = lightList.map(function(item) {
-      var elem;
-      if (item.data) {
-        elem = $('tr[data-id="' + item.data.id + '"]:not(.highlight)');
-      } else {
-        elem = $('tr[data-tree="' + item.path + '"]:not(.highlight)');
-      }
-      if (elem.length) {
-        return elem.addClass('highlight');
-      }
-    }).filter(util.noop);
+    lightList = lightList
+      .map(function (item) {
+        var elem;
+        if (item.data) {
+          elem = $('tr[data-id="' + item.data.id + '"]:not(.highlight)');
+        } else {
+          elem = $('tr[data-tree="' + item.path + '"]:not(.highlight)');
+        }
+        if (elem.length) {
+          return elem.addClass('highlight');
+        }
+      })
+      .filter(util.noop);
     if (lightList.length) {
-      setTimeout(function() {
+      setTimeout(function () {
         lightList.forEach(removeLighhight);
       }, 800);
     }
   },
-  componentDidMount: function() {
+  componentDidMount: function () {
     var self = this;
     var timer;
-    events.on('hashFilterChange', function() {
+    events.on('hashFilterChange', function () {
       self.setState({});
     });
-    events.on('onColumnsChanged', function() {
+    events.on('onColumnsChanged', function () {
       self.setState({ columns: settings.getSelectedColumns() });
     });
-    events.on('onColumnTitleChange', function() {
+    events.on('onColumnTitleChange', function () {
       self.setState({});
     });
-    events.on('replayTreeView', function(_, dataId, count) {
+    events.on('changeRecordState', function (_, type) {
+      self.setState({ record: type }, self.updateList);
+    });
+    events.on('selectedIndex', function (_, index) {
+      var list = self.props.modal.getList();
+      var item = list && (list[index] || list[list.length - 1]);
+      item && self.triggerActiveItem(item);
+    });
+    events.on('replayTreeView', function (_, dataId, count) {
       var item = self.props.modal.getTreeNode(dataId);
       var parent = item && item.parent;
       if (!parent) {
@@ -414,82 +527,120 @@ var ReqData = React.createClass({
       item = list[list.length - 1];
       item && self.scrollToRow(item, count);
     });
-    var update = function() {
+    var update = function () {
       self.setState({});
     };
-    var render = function() {
+    var render = function () {
       timer && clearTimeout(timer);
       timer = setTimeout(update, 60);
     };
     self.container = $(ReactDOM.findDOMNode(self.refs.container));
     self.content = ReactDOM.findDOMNode(self.refs.content);
-    self.$content = $(self.content).on('dblclick', 'tr', function(e) {
-      if (e.shiftKey) {
+    self.$content = $(self.content)
+      .on('dblclick', 'tr', function (e) {
         events.trigger('toggleDetailTab');
-      } else {
-        events.trigger('toggleInspectors');
-      }
-    }).on('click', 'tr', function(e) {
-      var id = this.getAttribute('data-id');
-      if (id) {
-        dataCenter.lastSelectedDataId = id;
-        var item = self.props.modal.getItem(id);
-        self.onClick(e, item);
-      }
-    });
-    var toggleDraggable = function(e) {
+      })
+      .on('click', 'tr', function (e) {
+        var id = this.getAttribute('data-id');
+        if (id) {
+          dataCenter.lastSelectedDataId = id;
+          var item = self.props.modal.getItem(id);
+          self.onClick(e, item);
+        }
+      });
+    var toggleDraggable = function (e) {
       var draggable = !e.shiftKey;
       if (self.state.draggable === draggable) {
         return;
       }
       self.setState({ draggable: draggable });
     };
-    self.container.on('keydown', function(e) {
-      var modal = self.props.modal;
-      toggleDraggable(e);
-      var item;
-      if (e.keyCode == 38) { //up
-        item = modal.prev();
-      } else if (e.keyCode == 40) {//down
-        item = modal.next();
-      }
+    self.container
+      .on('keydown', function (e) {
+        var modal = self.props.modal;
+        toggleDraggable(e);
+        var item;
+        if (e.keyCode == 38) {
+          //up
+          item = modal.prev();
+        } else if (e.keyCode == 40) {
+          //down
+          item = modal.next();
+        }
 
-      if (item) {
-        self.onClick(e, item, true);
-        e.preventDefault();
-      }
-    }).on('scroll', render).on('keyup', toggleDraggable)
-    .on('mouseover', toggleDraggable)
-    .on('mouseleave', toggleDraggable);
+        if (item) {
+          self.onClick(e, item, true);
+          e.preventDefault();
+        }
+      })
+      .on('scroll', render)
+      .on('keyup', toggleDraggable)
+      .on('mouseover', toggleDraggable)
+      .on('mouseleave', toggleDraggable);
 
     $(window).on('resize', render);
     events.on('ensureSelectedItemVisible', function () {
+      var modal = self.props.modal;
       var selected = self.props.modal.getSelectedList()[0];
-      if(selected){
+      if (selected && modal.isTreeView) {
+        selected = modal.getTreeNode(selected.id);
+      }
+      if (selected) {
         self.scrollToRow(selected);
-      }else{
+      } else {
         self.scrollToRow(0);
       }
     });
-    events.on('focusNetworkList', function() {
+    events.on('focusNetworkList', function () {
       self.container.focus();
     });
     var wrapper = ReactDOM.findDOMNode(self.refs.wrapper);
     var updateTimer;
-    var updateUI = function() {
+    var updateUI = function () {
       updateTimer = null;
       self.setState({ columns: settings.getSelectedColumns() });
     };
-    util.addDragEvent('.w-header-drag-block', function(_, x) {
+    util.addDragEvent('.w-header-drag-block', function (_, x) {
       self.minWidth = wrapper.offsetWidth + x;
       settings.setMinWidth(self.minWidth);
       updateTimer = updateTimer || setTimeout(updateUI, 50);
     });
+    var curRemoteUrl;
+    var importRemoteUrl = function () {
+      var hash = location.hash.substring(1);
+      var index = hash.indexOf('?');
+      if (index === -1) {
+        return;
+      }
+      var sessionsUrl = util.parseQueryString(
+        hash.substring(index + 1),
+        null,
+        null,
+        decodeURIComponent
+      ).sessionsUrl;
+      if (
+        !/^https?:\/\/[^/]/i.test(sessionsUrl) ||
+        sessionsUrl === curRemoteUrl
+      ) {
+        return;
+      }
+      curRemoteUrl = sessionsUrl.replace(/#.*$/, '');
+      var url = curRemoteUrl;
+      if (curRemoteUrl.indexOf('&from_5b6af7b9884e1165') === -1) {
+        url += (url.indexOf('?') === -1 ? '?' : '') + '&from_5b6af7b9884e1165';
+      }
+      events.trigger('importSessionsFromUrl', url);
+    };
+    importRemoteUrl();
+    $(window).on('hashchange', importRemoteUrl);
   },
-  onDragStart: function(e) {
+  onDragStart: function (e) {
     var target = $(e.target).closest('.w-req-data-item');
     var dataId = target.attr('data-id');
-    dataId && e.dataTransfer.setData('reqDataId', dataId);
+    if (dataId) {
+      events.trigger('showMaskIframe');
+      e.dataTransfer.setData('reqDataId', dataId);
+    }
   },
   getSelectedRows: function (item) {
     var active = this.props.modal.getActive();
@@ -498,7 +649,7 @@ var ReqData = React.createClass({
     }
     return [active, item];
   },
-  onClick: function(e, item, hm) {
+  onClick: function (e, item, hm) {
     if (!item) {
       return;
     }
@@ -527,41 +678,44 @@ var ReqData = React.createClass({
     item.active = item.selected;
     hm && self.scrollToRow(item);
     events.trigger('networkStateChange');
+    events.trigger('selectedSessionChange', item);
   },
-  setSelected: function(item, unselect) {
+  setSelected: function (item, unselect) {
     if (item.selected) {
       this.$content.find('tr[data-id=' + item.id + ']').addClass('w-selected');
     } else if (unselect) {
-      this.$content.find('tr[data-id=' + item.id + ']').removeClass('w-selected');
+      this.$content
+        .find('tr[data-id=' + item.id + ']')
+        .removeClass('w-selected');
     }
   },
-  clearSelection: function() {
+  clearSelection: function () {
     this.props.modal.clearSelection();
   },
-  getFilterList: function() {
+  getFilterList: function () {
     var settings = dataCenter.getFilterText();
     if (settings.disabledExcludeText) {
       return [];
     }
     return settings.excludeText.trim().split(/\s+/g);
   },
-  updateFilter: function(str) {
+  updateFilter: function (str) {
     var settings = dataCenter.getFilterText();
     settings.excludeText = str;
     settings.disabledExcludeText = false;
     dataCenter.setFilterText(settings);
     events.trigger('filterChanged');
   },
-  getActiveList: function(curItem) {
+  getActiveList: function (curItem) {
     if (!curItem.selected) {
       return [curItem];
     }
     return this.props.modal.getSelectedList();
   },
-  removeAllSuchHost: function(item, justRemove) {
+  removeAllSuchHost: function (item, justRemove) {
     var hostList = [];
     var list = this.getActiveList(item);
-    list.forEach(function(item) {
+    list.forEach(function (item) {
       var host = item.isHttps ? item.path : item.hostname;
       if (hostList.indexOf(host) === -1) {
         hostList.push(host);
@@ -570,7 +724,7 @@ var ReqData = React.createClass({
     this.props.modal.removeByHostList(hostList);
     if (!justRemove) {
       var filterList = this.getFilterList();
-      hostList.forEach(function(host) {
+      hostList.forEach(function (host) {
         host = 'H:' + host;
         if (filterList.indexOf(host) === -1) {
           filterList.unshift(host);
@@ -580,16 +734,18 @@ var ReqData = React.createClass({
     }
     events.trigger('updateGlobal');
   },
-  removeTreeNode: function(treeId, others) {
+  removeTreeNode: function (treeId, others) {
     if (this.props.modal.removeTreeNode(treeId, others)) {
       events.trigger('updateGlobal');
     }
   },
-  removeAllSuchURL: function(item, justRemove) {
+  removeAllSuchURL: function (item, justRemove) {
     var urlList = [];
     var list = this.getActiveList(item);
-    list.forEach(function(item) {
-      var url = item.isHttps ? item.path : item.url.replace(/\?.*$/, '').substring(0, 1024);
+    list.forEach(function (item) {
+      var url = item.isHttps
+        ? item.path
+        : item.url.replace(/\?.*$/, '').substring(0, 1024);
       if (urlList.indexOf(url) === -1) {
         urlList.push(url);
       }
@@ -597,7 +753,7 @@ var ReqData = React.createClass({
     this.props.modal.removeByUrlList(urlList);
     if (!justRemove) {
       var filterList = this.getFilterList();
-      urlList.forEach(function(url) {
+      urlList.forEach(function (url) {
         if (filterList.indexOf(url) === -1) {
           filterList.unshift(url);
         }
@@ -606,18 +762,18 @@ var ReqData = React.createClass({
     }
     events.trigger('updateGlobal');
   },
-  triggerActiveItem: function(item) {
+  triggerActiveItem: function (item) {
     this.onClick('', item, true);
     events.trigger('networkStateChange');
   },
-  onClickContextMenu: function(action, e, parentAction, name) {
+  onClickContextMenu: function (action, e, parentAction, name) {
     var self = this;
     var item = self.currentFocusItem;
     var modal = self.props.modal;
     var treeId = self.treeTarget;
-    var curUrl = item && item.url || (treeId && treeId + '/');
+    var curUrl = (item && item.url) || (treeId && treeId + '/');
     self.currentFocusItem = null;
-    switch(parentAction || action) {
+    switch (parentAction || action) {
     case 'New Tab':
       curUrl && window.open(curUrl);
       break;
@@ -641,14 +797,11 @@ var ReqData = React.createClass({
       self.triggerActiveItem(item);
       events.trigger('showInspectors');
       break;
-    case 'Frames':
-      self.triggerActiveItem(item);
-      events.trigger('showFrames');
-      break;
     case 'Timeline':
       self.triggerActiveItem(item);
       events.trigger('showTimeline');
       break;
+    case 'Composer':
     case 'Compose':
       events.trigger('composer', item);
       break;
@@ -657,7 +810,7 @@ var ReqData = React.createClass({
       var list = getFocusItemList(item) || (modal && modal.getSelectedList());
       if (list) {
         var isMark = action === 'Mark';
-        list.forEach(function(item) {
+        list.forEach(function (item) {
           item.mark = isMark;
         });
       }
@@ -666,9 +819,14 @@ var ReqData = React.createClass({
     case 'Replay':
       events.trigger('replaySessions', [item, e.shiftKey]);
       break;
+    case 'replayTimes':
+      events.trigger('replaySessions', [item, true]);
+      break;
     case 'Export':
       if (self.treeTarget && !self.isTreeLeafNode) {
-        events.trigger('exportSessions', [modal.getListByPath(self.treeTarget)]);
+        events.trigger('exportSessions', [
+          modal.getListByPath(self.treeTarget)
+        ]);
       } else {
         events.trigger('exportSessions', item);
       }
@@ -696,22 +854,34 @@ var ReqData = React.createClass({
       if (!realUrl || !/^(?:http|wss)s?:\/\//.test(realUrl)) {
         realUrl = item.url;
       }
-      var reqLine = [req.method, req.method == 'CONNECT' ? req.headers.host : util.getPath(realUrl),
-        'HTTP/' + (req.httpVersion || '1.1')].join(' ');
+      var reqLine = [
+        req.method,
+        req.method == 'CONNECT' ? req.headers.host : util.getPath(realUrl),
+        'HTTP/' + (req.httpVersion || '1.1')
+      ].join(' ');
       events.trigger('showFilenameInput', {
         title: 'Set the filename of request raw data',
-        headers: reqLine + '\r\n' + util.objectToString(req.headers, req.rawHeaderNames, true),
+        headers:
+            reqLine +
+            '\r\n' +
+            util.objectToString(req.headers, req.rawHeaderNames, true),
         base64: req.base64,
         name: getFilename(item, 'req_raw')
       });
       break;
     case 'Res Raw':
       var res = item.res;
-      var statusLine = ['HTTP/' + (item.req.httpVersion || '1.1'), res.statusCode,
-        util.getStatusMessage(res)].join(' ');
+      var statusLine = [
+        'HTTP/' + (item.req.httpVersion || '1.1'),
+        res.statusCode,
+        util.getStatusMessage(res)
+      ].join(' ');
       events.trigger('showFilenameInput', {
         title: 'Set the filename of response raw data',
-        headers: statusLine + '\r\n' + util.objectToString(res.headers, res.rawHeaderNames, true),
+        headers:
+            statusLine +
+            '\r\n' +
+            util.objectToString(res.headers, res.rawHeaderNames, true),
         base64: item.res.base64,
         name: getFilename(item, 'res_raw')
       });
@@ -784,7 +954,7 @@ var ReqData = React.createClass({
       break;
     }
   },
-  onContextMenu: function(e) {
+  onContextMenu: function (e) {
     var el = $(e.target).closest('.w-req-data-item');
     var dataId = el.attr('data-id');
     var treeId = el.attr('data-tree');
@@ -798,19 +968,18 @@ var ReqData = React.createClass({
     var clickBlank = disabled && !treeNodeData;
     var list0 = contextMenuList[0].list;
     list0[4].disabled = clickBlank || !/^https?:\/\//.test(treeId || item.url);
-    if (disabled) {
+    if (disabled || clickBlank) {
       list0[6].disabled = true;
     } else {
       var type = util.getContentType(item.res.headers);
-      list0[6].disabled = !item.res.base64 || (type !== 'HTML' && type !== 'IMG');
+      list0[6].disabled =
+        !item.res.base64 || (type !== 'HTML' && type !== 'IMG');
     }
     list0[0].disabled = disabled;
     list0[1].disabled = disabled;
-    list0[2].disabled = (disabled || !item.frames);
+    list0[2].disabled = disabled;
     list0[3].disabled = disabled;
-    list0[4].disabled = clickBlank;
     list0[5].disabled = clickBlank;
-    list0[6].disabled = clickBlank;
     list0[7].disabled = disabled;
     if (modal.isTreeView) {
       list0[8].name = 'List View';
@@ -820,23 +989,27 @@ var ReqData = React.createClass({
     contextMenuList[1].disabled = disabled && !treeId;
     var treeUrl = treeId ? treeId + '/' : '';
     var isTreeNode = disabled && !treeUrl;
-    contextMenuList[1].list.forEach(function(menu) {
+    contextMenuList[1].list.forEach(function (menu) {
       menu.disabled = disabled;
-      switch(menu.name) {
+      switch (menu.name) {
       case 'URL':
-        menu.copyText = util.getUrl(item && item.url.replace(/[?#].*$/, '') || treeUrl);
+        menu.copyText = util.getUrl(
+            (item && item.url.replace(/[?#].*$/, '')) || treeUrl
+          );
         menu.disabled = isTreeNode;
         break;
       case 'Host':
-        menu.copyText = item && (item.isHttps ? item.path : item.hostname) || util.getHost(treeUrl);
+        menu.copyText =
+            (item && (item.isHttps ? item.path : item.hostname)) ||
+            util.getHost(treeUrl);
         menu.disabled = isTreeNode;
         break;
       case 'Path':
-        menu.copyText = item && item.path || util.getPath(treeUrl);
+        menu.copyText = (item && item.path) || util.getPath(treeUrl);
         menu.disabled = isTreeNode;
         break;
       case 'Full URL':
-        menu.copyText = util.getUrl(item && item.url || treeUrl);
+        menu.copyText = util.getUrl((item && item.url) || treeUrl);
         menu.disabled = isTreeNode;
         break;
       case 'As CURL':
@@ -851,11 +1024,15 @@ var ReqData = React.createClass({
         menu.copyText = serverIp;
         break;
       case 'Req Headers':
-        menu.copyText = item && util.objectToString(item.req.rawHeaders || item.req.headers);
+        menu.copyText =
+            item &&
+            util.objectToString(item.req.rawHeaders || item.req.headers);
         menu.disabled = !menu.copyText;
         break;
       case 'Res Headers':
-        menu.copyText = item && util.objectToString(item.res.rawHeaders || item.res.headers);
+        menu.copyText =
+            item &&
+            util.objectToString(item.res.rawHeaders || item.res.headers);
         menu.disabled = !menu.copyText;
         break;
       case 'Cookie':
@@ -899,34 +1076,38 @@ var ReqData = React.createClass({
     contextMenuList[5].disabled = disabled;
     var list5 = contextMenuList[5].list;
     if (item) {
-      list5[2].disabled = false;
+      list5[3].disabled = false;
       if (item.selected) {
-        list5[3].disabled = true;
         list5[4].disabled = true;
-        selectedList.forEach(function(selectedItem) {
+        list5[5].disabled = true;
+        selectedList.forEach(function (selectedItem) {
           if (selectedItem.mark) {
-            list5[4].disabled = false;
+            list5[5].disabled = false;
           } else {
-            list5[3].disabled = false;
+            list5[4].disabled = false;
           }
         });
       } else {
         var unmark = !item.mark;
-        list5[3].disabled = !unmark;
-        list5[4].disabled = unmark;
+        list5[4].disabled = !unmark;
+        list5[5].disabled = unmark;
       }
       if (item.selected) {
-        list5[1].disabled = !selectedList.filter(util.canReplay).length;
+        var len = selectedList.length;
         list5[0].disabled = !selectedList.filter(util.canAbort).length;
+        list5[1].disabled = !len;
+        list5[2].disabled = !len || len > 1;
       } else {
-        list5[1].disabled = !util.canReplay(item);
         list5[0].disabled = !util.canAbort(item);
+        list5[1].disabled = false;
+        list5[2].disabled = false;
       }
     } else {
       list5[0].disabled = true;
       list5[1].disabled = true;
       list5[2].disabled = true;
       list5[3].disabled = true;
+      list5[4].disabled = true;
     }
     var treeItem = contextMenuList[6];
     var treeList = treeItem.list;
@@ -952,7 +1133,12 @@ var ReqData = React.createClass({
     }
     var pluginItem = contextMenuList[9];
     pluginItem.disabled = disabled && !selectedCount;
-    util.addPluginMenus(pluginItem, dataCenter.getNetworkMenus(), treeItem.hide ? 8 : 9, disabled);
+    util.addPluginMenus(
+      pluginItem,
+      dataCenter.getNetworkMenus(),
+      treeItem.hide ? 8 : 9,
+      disabled
+    );
     var height = (treeItem.hide ? 310 : 340) - (pluginItem.hide ? 30 : 0);
     pluginItem.maxHeight = height;
     var data = util.getMenuPosition(e, 110, height);
@@ -960,19 +1146,19 @@ var ReqData = React.createClass({
     data.className = data.marginRight < 360 ? 'w-ctx-menu-left' : '';
     this.refs.contextMenu.show(data);
   },
-  updateList: function() {
+  updateList: function () {
     this.refs.content.refs.list.forceUpdateGrid();
   },
-  onFilterChange: function(keyword) {
+  onFilterChange: function (keyword) {
     var self = this;
     self.props.modal.search(keyword);
     clearTimeout(self.networkStateChangeTimer);
-    self.networkStateChangeTimer = setTimeout(function() {
-      self.setState({filterText: keyword}, self.updateList);
+    self.networkStateChangeTimer = setTimeout(function () {
+      self.setState({ filterText: keyword }, self.updateList);
       events.trigger('networkStateChange');
     }, 600);
   },
-  onFilterKeyDown: function(e) {
+  onFilterKeyDown: function (e) {
     if (e.keyCode !== 13 || !CMD_RE.test(e.target.value)) {
       return;
     }
@@ -980,12 +1166,14 @@ var ReqData = React.createClass({
     this.props.modal.clear();
     this.refs.filterInput.clearFilterText();
   },
-  autoRefresh: function() {
+  autoRefresh: function () {
     if (this.container) {
-      this.container.find('.ReactVirtualized__Grid:first').scrollTop = 100000000;
+      this.container.find(
+        '.ReactVirtualized__Grid:first'
+      ).scrollTop = 100000000;
     }
   },
-  orderBy: function(e) {
+  orderBy: function (e) {
     var target = this.willResort && $(e.target).closest('th')[0];
     if (!target) {
       return;
@@ -1006,8 +1194,8 @@ var ReqData = React.createClass({
     }
 
     var sortColumns = [];
-    Object.keys(columnState).forEach(function(name) {
-      if (order = columnState[name]) {
+    Object.keys(columnState).forEach(function (name) {
+      if ((order = columnState[name])) {
         sortColumns.push({
           name: name,
           order: order
@@ -1017,13 +1205,13 @@ var ReqData = React.createClass({
     this.props.modal.setSortColumns(sortColumns);
     this.setState({});
   },
-  onColumnsResort: function() {
+  onColumnsResort: function () {
     this.setState({ columns: settings.getSelectedColumns() });
   },
-  onMouseDown: function(e) {
+  onMouseDown: function (e) {
     this.willResort = e.target.className !== 'w-header-drag-block';
   },
-  onReplay: function(e) {
+  onReplay: function (e) {
     if (!e.metaKey && !e.ctrlKey) {
       return;
     }
@@ -1037,7 +1225,7 @@ var ReqData = React.createClass({
       events.trigger('composer');
     }
   },
-  renderColumn: function(col, i) {
+  renderColumn: function (col, i) {
     var name = col.name;
     var style = getColStyle(col);
     if (columnState[name]) {
@@ -1050,28 +1238,41 @@ var ReqData = React.createClass({
       title = col.title;
     }
     return (
-      <th onMouseDown={this.onMouseDown} {...this.state.dragger} data-name={name}
-        draggable={true} key={name} className={col.className} style={style}
+      <th
+        onMouseDown={this.onMouseDown}
+        {...this.state.dragger}
+        data-name={name}
+        draggable={true}
+        key={name}
+        className={col.className}
+        style={style}
       >
-        { name === 'path' ? <div onDragStart={stopPropagation} draggable={true} className="w-header-drag-block" /> : undefined}
-        {title}<Spinner order={columnState[name]} />
+        {name === 'path' ? (
+          <div
+            onDragStart={stopPropagation}
+            draggable={true}
+            className="w-header-drag-block"
+          />
+        ) : undefined}
+        {title}
+        <Spinner order={columnState[name]} />
       </th>
     );
   },
-  scrollToRow: function(target, count){
-    if(target && (target.id || (target.data && target.data.id))) {
+  scrollToRow: function (target, count) {
+    if (target && (target.id || (target.data && target.data.id))) {
       var index = this.getVisibleList().indexOf(target);
       if (index === -1) {
         return;
       }
-      target = index + (count > 0 ? count + 2 : 2);
+      target = index + (count > 0 ? count : 0);
     }
     try {
       this.refs.content.refs.list.scrollToRow(target);
     } catch (e) {}
     this.container.focus();
   },
-  getTreeNode: function(e) {
+  getTreeNode: function (e) {
     var modal = this.props.modal;
     if (typeof e === 'string') {
       return modal.getTreeNode(e);
@@ -1079,7 +1280,7 @@ var ReqData = React.createClass({
     var elem = $(e.target).closest('.w-req-data-item');
     return modal.getTreeNode(elem.attr('data-tree'));
   },
-  toggleNode: function(e) {
+  toggleNode: function (e) {
     var node = this.getTreeNode(e);
     if (node) {
       if (node.expand) {
@@ -1090,7 +1291,7 @@ var ReqData = React.createClass({
       this.setState({});
     }
   },
-  expandAll: function(e) {
+  expandAll: function (e) {
     if (!e) {
       var root = this.props.modal.getTree();
       root.children.forEach(util.expandAll);
@@ -1102,7 +1303,7 @@ var ReqData = React.createClass({
       this.setState({});
     }
   },
-  collapseAll: function(e) {
+  collapseAll: function (e) {
     if (!e) {
       var root = this.props.modal.getTree();
       root.children.forEach(util.collapseAll);
@@ -1114,7 +1315,7 @@ var ReqData = React.createClass({
       this.setState({});
     }
   },
-  renderTreeNode: function(item, options) {
+  renderTreeNode: function (item, options) {
     var draggable = this.state.draggable;
     var style = options.style;
     var leaf = item.data;
@@ -1125,28 +1326,39 @@ var ReqData = React.createClass({
       <tr
         key={leaf ? leaf.id : item.path}
         style={style}
-        className={`w-req-data-item tree-node ${leaf ? 'tree-leaf': ''} ${className}`}
+        className={`w-req-data-item tree-node ${
+          leaf ? 'tree-leaf' : ''
+        } ${className}`}
         data-id={leaf && leaf.id}
         data-tree={item.path}
         draggable={leaf && draggable}
         onClick={leaf ? null : this.toggleNode}
         title={leaf ? util.getUrl(leaf.url) : value}
-        onKeyDown={function(){}}
+        onKeyDown={function () {}}
       >
-        {
-          leaf ? getIcon(leaf, className) : (
-            <span className={`icon-fold glyphicon glyphicon-triangle-${item.expand ? 'bottom' : 'right'}`}></span>
-          )
-        }
+        {leaf ? (
+          getIcon(leaf, className)
+        ) : (
+          <span
+            className={`icon-fold glyphicon glyphicon-triangle-${
+              item.expand ? 'bottom' : 'right'
+            }`}
+          ></span>
+        )}
         {value.length > 320 ? value.substring(0, 320) + '...' : value}
       </tr>
     );
   },
-  getVisibleList: function() {
-    var modal = this.props.modal;
-    return modal.isTreeView ? modal.getTree().list.filter(isVisibleInTree) : modal.list.filter(isVisible);
+  enableRecord: function () {
+    events.trigger('enableRecord');
   },
-  render: function() {
+  getVisibleList: function () {
+    var modal = this.props.modal;
+    return modal.isTreeView
+      ? modal.getTree().list.filter(isVisibleInTree)
+      : modal.getList().filter(isVisible);
+  },
+  render: function () {
     var self = this;
     var state = this.state;
     var modal = self.props.modal;
@@ -1159,6 +1371,7 @@ var ReqData = React.createClass({
     var colStyle = state.columns.style;
     var filterText = (state.filterText || '').trim();
     var minWidth = settings.getMinWidth();
+    var record = state.record;
     if (minWidth && minWidth > width) {
       width = minWidth;
       colStyle.minWidth = width;
@@ -1168,52 +1381,92 @@ var ReqData = React.createClass({
     self.visibleList = list;
 
     return (
-        <div className="fill w-req-data-con orient-vertical-box">
-          <div ref="wrapper" className="w-req-data-content fill orient-vertical-box" style={colStyle}>
-            <div className={'w-req-data-headers' + (isTreeView ? ' hide' : '')}>
-              <table className="table">
-                  <thead>
-                    <tr onClick={self.orderBy}>
-                      <th className="order">#</th>
-                      {columnList.map(self.renderColumn)}
-                    </tr>
-                  </thead>
-                </table>
+      <div className="fill w-req-data-con orient-vertical-box">
+        <div
+          ref="wrapper"
+          className="w-req-data-content fill orient-vertical-box"
+          style={colStyle}
+        >
+          {record ? (
+            <div className="w-record-status">
+              {record === 'stop' ? 'Recording stopped' : 'Recording paused'}
+              <button className="btn btn-primary" onClick={self.enableRecord}>
+                Enable
+              </button>
             </div>
-            <div ref="container" tabIndex="0" onContextMenu={self.onContextMenu} onKeyDown={self.onReplay}
-              style={{background: (dataCenter.hashFilterObj || filterText) ? 'lightyellow' : undefined}}
-              className={'w-req-data-list fill' + (isTreeView ? ' w-tree-view-list' : '')} onDragStart={self.onDragStart}>
-                <RV.AutoSizer ref="content" >{function(size){
-                  return (
-                      <RV.List
-                      ref="list"
-                      rowHeight={isTreeView ? TREE_ROW_HEIGHT : 28}
-                      width={size.width}
-                      height={size.height}
-                      rowCount={list.length}
-                      rowRenderer={function(options){
-                        var index = options.index;
-                        var item = list[index];
-                        if (isTreeView) {
-                          if (self.startIndex == null) {
-                            self.startIndex = index;
-                          }
-                          self.endIndex = index;
-                          return self.renderTreeNode(item, options);
-                        }
-                        var order = hasKeyword ? index + 1 : item.order;
-                        return <Row style={options.style} key={options.key} order={order}
-                          columnList={columnList} draggable={draggable} item={item} />;
-                      }}
-                      />);
-                }}
-                </RV.AutoSizer>
-            </div>
+          ) : null}
+          <div className={'w-req-data-headers' + (isTreeView ? ' hide' : '')}>
+            <table className="table">
+              <thead>
+                <tr onClick={self.orderBy}>
+                  <th className="order">#</th>
+                  {columnList.map(self.renderColumn)}
+                </tr>
+              </thead>
+            </table>
           </div>
-          <FilterInput ref="filterInput" onKeyDown={this.onFilterKeyDown}
-            onChange={this.onFilterChange} wStyle={colStyle} hintKey="networkHintList" />
-          <ContextMenu onClick={this.onClickContextMenu} ref="contextMenu" />
-          <QRCodeDialog ref="qrcodeDialog" />
+          <div
+            ref="container"
+            tabIndex="0"
+            onContextMenu={self.onContextMenu}
+            onKeyDown={self.onReplay}
+            style={{
+              background:
+                dataCenter.hashFilterObj || filterText
+                  ? 'lightyellow'
+                  : undefined
+            }}
+            className={
+              'w-req-data-list fill' + (isTreeView ? ' w-tree-view-list' : '')
+            }
+            onDragStart={self.onDragStart}
+          >
+            <RV.AutoSizer ref="content">
+              {function (size) {
+                return (
+                  <RV.List
+                    ref="list"
+                    rowHeight={isTreeView ? TREE_ROW_HEIGHT : 28}
+                    width={size.width}
+                    height={size.height}
+                    rowCount={list.length}
+                    rowRenderer={function (options) {
+                      var index = options.index;
+                      var item = list[index];
+                      if (isTreeView) {
+                        if (self.startIndex == null) {
+                          self.startIndex = index;
+                        }
+                        self.endIndex = index;
+                        return self.renderTreeNode(item, options);
+                      }
+                      var order = hasKeyword ? index + 1 : item.order;
+                      return (
+                        <Row
+                          style={options.style}
+                          key={options.key}
+                          order={order}
+                          columnList={columnList}
+                          draggable={draggable}
+                          item={item}
+                        />
+                      );
+                    }}
+                  />
+                );
+              }}
+            </RV.AutoSizer>
+          </div>
+        </div>
+        <FilterInput
+          ref="filterInput"
+          onKeyDown={this.onFilterKeyDown}
+          onChange={this.onFilterChange}
+          wStyle={colStyle}
+          hintKey="networkHintList"
+        />
+        <ContextMenu onClick={this.onClickContextMenu} ref="contextMenu" />
+        <QRCodeDialog ref="qrcodeDialog" />
       </div>
     );
   }
