@@ -1,4 +1,294 @@
+# v2.9.20
+1. fix: `resCors://*` 失效问题
 
+# v2.9.19
+1. feat: 支持自定义 `Upgrade` 请求协议
+2. fix: `enable://proxyFirst` 可能出现重复请求问题
+
+# v2.9.18
+1. fix: 请求经过代理后 `x-whistle-client-id` 丢失问题
+2. feat: 支持在 `Network / Tools` 里面自定义 Tab，详见：https://github.com/whistle-plugins/examples/tree/master/whistle.view-md5
+
+# v2.9.17
+1. fix: 规则列表无法拖动排序问题
+2. refactor: `enable://clientId` 对所有请求生效（之前只对批评设置代理规则的请求生效）
+3. docs: 调整 README
+
+# v2.9.16
+1. style: 添加 `Replay Times` 和 `Repeat Times` 菜单，最多可以重放请求 100 次
+2. refactor: `compose` cgi 支持设置 `repeatTimes`（不能超过 100 次）
+3. feat: 新增 CGI `/rules` `/values` `/rules?name=xxx` `/values?name=xxx` 获取 Whistle 的当前启用的规则和指定规则
+
+# v2.9.15
+1. feat: 支持通过 `w2 ca [host:port]` 安装对应 Whistle 代理的根证书（不填参数，默认加载当前本机运行版本）
+2. feat: 支持通过 `w2 start[restart|run] --init [bypass]` 启动时同时设置代理和安装根证书，利用此特性可以实现通过 `npm i -g whistle && w2 restart --init` 一键安装 Whistle
+3. feat: 支持上传 `.cer` 及 `.pem` 证书
+4. feat: 支持通过 `process.env.WHISTLE_MODE` 定义启动参数 `-M xxx`
+5. fix: `utf8` 编码不支持 `0x7f` 字符问题
+
+# v2.9.14
+1. feat: 支持通过命令行 `w2 proxy [off] [port] [host:port] [-x bypass]` 设置系统的全局代理
+	- `w2 proxy`: 设置全局代理 `127.0.0.1:port`，port 为运行的默认实例的端口（`storage` 为空），如果没有默认实例则为 `8899`
+	- `w2 proxy -x "<local>, domain1, domain2"`: 设置全局代理 `127.0.0.1:port`，port 为运行的默认实例的端口（`storage` 为空），如果没有默认实例则为 `8899`，**并设置不代理域名白名单**
+	- `w2 proxy 8899`: 设置指定端口的代理，host 默认为 `127.0.0.1`
+	- `w2 proxy www.test.com:8080` 或 `w2 proxy www.test.com:auto`: 指定代理的 host 和 port
+	- `w2 proxy www.test.com:8080 -x "<local>, domain1, domain2"`: 组合应用
+	- `w2 proxy off`: 关闭全局代理
+
+# v2.9.13
+1. refactor: 内联规则 `protocol://(key1=value1&key2=value2...)` 不再自动 `decodeURIComponent`
+2. refactor: 如果内联规则 `protocol://key1=value1&key2=value2...` 无 `()`，会先检测下对应文件是否存在，不存在就当成 `protocol://(key1=value1&key2=value2...)` 处理
+
+# v2.9.12
+1. fix: https://github.com/avwo/whistle/issues/726
+2. refactor: 优化 `excludeFilter://host=pattern`
+
+# v2.9.11
+1. fix: 使用 `https2http-proxy://host:port` 时，某些 `post` 请求无法正常发送问题
+2. fix: 确保模板字符串的 `clientId` 优先获取传过来的请求 `clientId`（需要用本地的 `clientId` 可以使用 `localClientId`）
+
+# v2.9.10
+1. feat: 添加 `skip` 协议， skip 与 ignore 的区别，ignore 是将匹配的规则删除掉，skip 是跳过指定的规则不做匹配
+2. fix: https://github.com/nodejs/node/issues/42787
+
+# v2.9.9
+1. feat: 支持通过 `w2 i 任意url` 安装插件
+2. feat: 支持插件通过 `options.getPlugins(cb)` 获取当前 Whistle 安装的插件信息
+3. feat: 支持通过 `ignore://matcher=xxx` （等价于 `ignore://operator=xxx`）、`ignore://pattern=xxx` 删除指定匹配的规则
+4. style: 插件 `Sync` 功能支持获取历史记录列表
+
+# v2.9.8
+1. fix: TUNNEL 代理的 HTTP 请求被拦截后一些代理请求头的透传问题
+2. feat: 支持通过 `w2 i git-url` 安装插件
+
+# v2.9.7
+1. style: 下次打开 Plugins 页面自动打开之前已打开的插件 Tab
+2. refactor: `w2 add` 可以设置的规则大小由 16k 改成 256k
+3. fix: TUNNEL 请求帧数据可能显示不全问题
+
+# v2.9.6
+1. fix: 长连接里面的帧数据可能展示补全问题
+2. fix: 经过插件转发后的请求 client id 丢失问题
+
+# v2.9.5
+1. refactor: 如果启动绑定网卡，将网卡显示到 Online 里面
+2. style: Tunnel 代理，支持通过请求头或响应头的 `x-whistle-transport-protocol` 自定义 `Protocol` 显示，响应头优先
+
+# v2.9.4
+1. fix: auth 插件钩子可能对被拦截的 tunnel 请求不生效问题
+2. style: 支持导出的数据自带 Node 和 Whistle 的版本号
+3. feat: 插件支持通过 package.whistleConfig.peerPluginList 配置安装插件式自动加载的关联插件列表（最多不超过 15 个插件）
+
+# v2.9.3
+1. feat: `redirect` 归类为 `rule` 与 `file`、`statusCode` 等协议同级别
+2. refactor: 添加 ts 描述文件
+3. refactor:`w2 i plugin` 支持 `w2 i plugin@version`
+4. fix: Node 16 引入 `req.filter` 方法引发的问题
+
+# v2.9.2
+1. feat: 支持启动参数设置 `options.server` 方便第三方服务集成
+	> `server` 可以为 `http.Server` 或 `events.EventEmitter` 对象，在第三方应用中可以通过 `server.emit('request'| 'upgrade' | 'connect', req, res)` 将请求交给 Whistle 处理
+2. feat: 支持通过插件引入远程 Value：`protocol://$plugin/xxx`，这种配置会自动从插件 whistle.plugin uiServer 的 `/api/key/value?key=xxx` 获取对应的值
+3. refactor: 优化错误日志路径 & `w2 status --all` 显示进程 id
+4. refactor: 支持 HTTP2 的 Node 最低版本有 12 调整为 14（低版本的 HTTP2 模块存在一些 bug） 
+5. fix: https://github.com/avwo/whistle/issues/697
+
+# v2.9.1
+1. feat: 支持通过 `pattern enable://clientIp` 让 Whistle 自动设置 `x-forwarded-for` 请求头
+2. style: Values 编辑器支持 JSON 对象折叠，详见：https://github.com/avwo/whistle/pull/683
+3. refactor: Whistle 的日志统一放 `$WHISTLE_PATH/whistle.log` 文件，默认为 `~/.WhistleAppData/whistle.log`
+
+# v2.9.0
+1. style: 修复禁用所有插件编辑器对应插件规则无法显示插件已失效的问题
+2. style: `Frames` 移入 `Inspectors`
+3. feat: 将请求匹配的 pattern 传给插件，可以通过 `req.originalReq.isRegExp` 及 `req.originalReq.pattern` 获取
+4. feat: 支持自定义 Inspectors tab，详见：https://github.com/whistle-plugins/examples/tree/master/whistle.view-md5
+5. feat: 支持自定义 Composer tab，详见：https://github.com/whistle-plugins/examples/tree/master/whistle.view-md5
+6. refactor: 插件全局异常也会写入启动目录的日志文件 `whistle.log`，且支持插件通过 `process.handleUncaughtPluginErrorMessage = (errMsg) => {}` 获取全局异常信息，且可以通过 `return false` 来禁止插件自动退出
+
+
+# v2.8.10
+1. fix: 插件的 sniCallback 返回 `false` 请求没有重新走 TUNNEL 代理问题
+2. refactor: 如果插件接收到的请求是 https，则 `req.url` 将为完整的路径
+
+# v2.8.9
+1. feat: 支持自定义 `inspectors tab`，详见：https://github.com/whistle-plugins/examples/tree/master/whistle.view-md5
+2. feat: 支持通过 `disable://abort` 禁用 `enable://abort`
+3. feat: Whistle 默认显示的抓包数据不超过 1.5m，可以通过 `enable://bigData` 扩大到 `2.5m`
+
+# v2.8.8
+1. feat: 支持通过 `enable://useLocalHost` 和 `enable://useSafePort` 修改 log 和 weinre 请求 URL 的域名或端口
+2. style: 界面提供 `api.selectIndex` 选中指定下标的抓包数据
+3. feat: 支持插件获取 `originalReq.remoteAddress` 与 `originalReq.remotePort`
+
+# v2.8.7
+1. feat: `--httpsPort` 启动的 HTTPS Server 支持从插件获取证书
+2. feat: 支持通过 `excludeFilter://from=httpServer`、`includeFilter://from=httpsServer`、`excludeFilter://from=httpServer`、`includeFilter://from=httpsServer` 过滤请求
+
+# v2.8.6
+1. refactor: 禁止通过页面上传根证书 `root.key & root.crt`
+2. refactor: Whistle 自动生成的证书过期时自动续期（有效期一年）
+
+# v2.8.5
+1. feat: 支持通过 `ignore://-*` 过滤 `ignore://*`
+2. feat: 支持 `proxy` 和 `pac` 配置 `lineProps://proxyHostOnly`，当用户配置了 `host` 代理才会生效
+3. feat: 非 SNI 请求也支持通过插件自定义证书，且支持直接上传和删除用户自定义证书
+
+# v2.8.4
+1. fix: 可能无法导入 saz 文件问题
+
+# v2.8.3
+1. fix: https://github.com/avwo/whistle/pull/657
+2. feat: 插件 `server` 钩子支持通过 `req.setReqRules & req.setResRules` 设置动态规则
+3. feat: 支持通过 `enable://forceReqWrite` 和 `enable://forceResWrite` 强制 `reqWrite`、`reqWriteRaw` 和 `resWrite`、`resWriteRaw`
+4. feat: `reqWrite:///path/to/` 和 `reqWrite:///path/to` 加以区别，前者会自动把根路径补成 `index.html`
+5. feat: 插件的 auth hook 默认情况下如果开启了捕获 https，则对这部分请求只会对解析后的 https 请求生效，如果需要对隧道代理生效可以设置 `enable://authCapture`
+6. feat: 默认不启用 `x-forwarded-host` 和 `x-forwarded-proto` 直接放过，可以通过以下方式启用：
+	- 启动参数 `-M x-forwarded-host|x-forwarded-proto`
+	- 请求进入 Whistle 之前设置请求头 `x-whistle-forwarded-props: host,proto,for,clientIp,ip`
+
+# v2.8.2
+1. feat: `resMerge://json1 resMerge://json2` 默认采用 `extend({}, json1, json2)`，新版支持通过 `resMerge://json1 resMerge://json2 resMerge://true` 开启  `extend(true, {}, json1, json2)`
+2. refactor: 插件规则里面的 req 和 res rules 分开执行
+
+# v2.8.1
+1. refactor: 优化获取证书逻辑，合并多次相同请求
+2. refactor: 处理 `unhandledRejection` 事件
+3. feat: 支持通过请求头设置响应规则
+4. fix: sniCallback 内存泄露问题
+
+# v2.8.0
+1. feat: 支持启动 `--cluster [workers]` 模式，通过该方式可以启动多进程模式（worker 为 Whistle headless）
+2. fix: 启动时绑定非 `127.0.0.1` 网卡，插件远程规则访问失败问题
+
+# v2.7.29
+1. fix: https://github.com/avwo/whistle/issues/643
+
+# v2.7.28
+1. fix: WebSocket 无法抓包问题
+
+# v2.7.27
+1. fix: 插件用到 `storage.setProperties` 失效问题
+2. feat: 插件 `whistleConfig` 支持配置 `inheritAuth` 复用 Whistle 的登录账号
+
+# v2.7.26
+1. feat: 支持通过插件 `sniCallback(req, options)` hook 获取远程证书
+2. feat: 支持通过 `--config localFile` 加载启动配置，优先级高于命令行
+
+# v2.7.25
+1. fix: 某些情况下响应 stream pause 问题
+2. refactor: 优化 `w2 stop`，找不到指定实例时自动显示当前所有运行的实例
+3. style: 支持将 Rules 添加到最前面
+
+# v2.7.24
+1. refactor: 优化 `lineProps://proxyHost|proxyTunnel|proxyFirst`
+
+# v2.7.23
+1. style: 优化显示 Composer 历史记录列表
+2. style: 禁用 Rules、Plugins 显示小黄条提醒
+
+# v2.7.22
+1. feat: 插件 auth 方法支持 `req.setRedirect(url);`
+2. perf: 优化启动速度
+3. fix: 修复第三方集成时，一些内部请求转发问题
+
+# v2.7.21
+1. fix: 清除搜索框历史记录 js 报错问题
+2. feat: 普通 HTTP 请求也支持 `customParser`（或 `customFrames`）：https://github.com/whistle-plugins/whistle.custom-parser
+
+# v2.7.20
+1. fix: Cannot read property 'headers' of undefined
+
+# v2.7.19
+1. feat: HTTP2 支持非 HTTPS 请求
+2. feat: 插件支持通过 `options.getCert(domain, (cert || '') => {})` 获取指定域名证书
+3. refactor: 优化 `reqDelay` 和 `resDelay` 实现
+# v2.7.18
+1. feat: 支持插件设置 `tunnelKey` 将指定的隧道代理请求头带到解开后的 http/https/ws 请求头
+2. feat: 插件 `auth` 方法支持处理 Whistle 的内部请求
+3. feat: 插件 `auth` 支持设置 `req.showLoginBox` 弹出登录框
+4. style: 显示 UI 请求情况
+5. refactor: 优化内部请求转发逻辑的实现方式
+
+# v2.7.17
+1. feat: WebSocket 和 Tunnel 请求支持 `replaceStatus`
+
+# v2.7.16
+1. fix: Maximum call stack size exceeded
+
+# v2.7.15
+1. perf: 去掉 `Empty Request`，减少内存及 CPU 占用
+2. style: Network 的  `Body` 支持显示请求内容大小
+
+# v2.7.14
+1. feat: 插件支持通过 `options.require` 直接引用 Whistle 里面的第三方模块或文件
+2. refacto: 插件在不同实例使用不同的存储目录
+
+# v2.7.13
+1. fix: 特殊情况下 Whistle 无法展示 WebSocket 前几个请求帧问题
+2. feat: 支持在模板字符串里面通过 `clientPort` 和 `serverPort` 分别获取客户端和服务端端口
+3. refactor: `alert`、`confirm`、`prompt` 等浏览器内置的窗口改用自定义实现，防止 https://www.chromestatus.com/feature/5148698084376576
+
+# v2.7.12
+1. fix: `reqReplace` 及 `resReplace` 可能因为拆包导致匹配不准确问题
+2. fix: Rules 编辑器行首字母输入 `!` 报错问题
+
+# v2.7.11
+1. feat: 插件 hook 支持 `async-await`：
+
+		``` js
+		module.exports = async (server, options) => {
+			// ... do sth
+		};
+		```
+2. feat: `pipe://xxx` 支持插件内部通过 `req.originalReq.ruleValue` 获取 `xxx://value` 的 `value` 值
+
+# v2.7.10
+1. feat: 支持通过 `-M disableForwardedHost` 禁止 Whistle 使用 `x-forwarded-host` 请求头，默认 Whistle 会用该请求头作为请求 URL 的域名
+2. feat: 支持通过 `-M disableForwardedProto` 禁止 Whistle 使用 `x-forwarded-proto` 请求头，默认当该请求头值为 `https` 时， Whistle 会把请求当成 HTTPS 处理
+3. feat: 第三方通过 `const proxy = startWhistle(options);` 启动 Whistle 时，可以通过 `proxy.on('perfDataChange', (perfData) => {})` 获取 cpu、内存、请求量等数据
+4. refactor: 第三方通过 `const proxy = startWhistle(options);` 启动 Whistle 时，可以通过 `proxy.on('pluginLoad', child, name, moduleName);`、`proxy.on('pluginLoadError', err, name, moduleName);` 监听插件启动信息
+
+# v2.7.9
+1. feat: 支持 `pattern %plugin=xxx`
+2. feat: 支持插件通过 `options.getTop(data => data && console.log(data))` 获取所在 Whistle 的 CPU、内存及请求量等信息
+
+# v2.7.8
+1. feat: 源码目录添加 Dockerfile: https://github.com/avwo/whistle/pull/601
+2. feat: 支持在插件的根目录执行 `w2 run` 时自动加载该插件
+3. refactor: 设置 `resCors://enable` 如果请求头不存在 `origin` 则自动忽略该设置
+4. fix: https://github.com/avwo/whistle/issues/600
+
+# v2.7.7
+1. fix: [pipe](https://wproxy.org/whistle/rules/pipe.html) 无法直接透传 WebSocket 的二进制包问题
+2. style: 支持显示自定义根证书及删除自定义证书导引
+3. style: `pipe` 支持智能提示
+
+# v2.7.6
+1. feat: 支持通过类似 `--dnsServer http://dns.alidns.com/resolve` 自定义 `dns-over-https` 服务： https://github.com/avwo/whistle/issues/439
+2. style: 优化错误提示
+
+# v2.7.5
+1. feat: 支持通过 `disable://interceptConsole` 禁止 `log://` 拦截 `console` 的请求，用户只能通过代码 `window._whistleConsole && _whistleConsole.xxx(a, b, ...)` 记录日志
+2. feat: 支持在规则里面同时设置多个s `%plugin-name=xxxx` （最多 10 个），Whistle 会自带将这些值带到插件的对象： `req.originalReq.pluginVars`
+3. refactor: 显示插件转发的 HTTP 协议 
+
+# v2.7.4
+1. refactor: 调整 `delete://reqH.xxxx` 的时机
+
+# v2.7.3
+1. style: 优化左侧菜单
+2. styl: 修复 Values 右键菜单 Copy / Key 弹出创建新 key 输入框问题
+3. feat: 支持设置 `-M shadowRules` （抓包 + 设置 shadowRules） 或 `-M shadowRulesOnly` （无法查看抓包）
+
+# v2.7.2
+1. feat: 支持通过命令行参数 `--dnsServer "1.1.1.1,8.8.8.8,10.3.2.1:8080"` 自定义 DNS server
+		> 如果需要请求自定义 DNS server 出错时自动转成默认可以用: `--dnsServer "1.1.1.1,8.8.8.8,10.3.2.1:8080,default"`
+		> 自定义 DNS server，默认是获取 IPv4，如果需要获取 IPv6，要手动指定 `--dnsServer "2001:4860:4860::8888,[2001:4860:4860::8888]:1053,ipv6"`
+2. fix: 修复 List View 通过表头排序后无法 Reset 的问题
+
+# 2.7.1
+1. fix: Tree View 抓包数据满了后无法自动更新问题
 # v2.7.0
 1. feat: Network 支持 Tree View 展示
 2. feat: `pac` 支持设置用户名密码：`pac://user:pass@pacPath`

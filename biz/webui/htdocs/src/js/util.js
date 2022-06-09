@@ -1,6 +1,6 @@
 var $ = require('jquery');
 var toByteArray = require('base64-js').toByteArray;
-var fromByteArray  = require('base64-js').fromByteArray;
+var fromByteArray = require('base64-js').fromByteArray;
 var jsBase64 = require('js-base64').Base64;
 var base64Decode = jsBase64.decode;
 var base64Encode = jsBase64.encode;
@@ -9,6 +9,7 @@ var json2 = require('./components/json');
 var evalJson = require('./components/json/eval');
 var isUtf8 = require('./is-utf8');
 var message = require('./message');
+var win = require('./win');
 
 var CRLF_RE = /\r\n|\r|\n/g;
 var BIG_NUM_RE = /[:\[][\s\n\r]*-?[\d.]{16,}[\s\n\r]*[,\}\]]/;
@@ -22,6 +23,7 @@ var INDEX_RE = /^\[(\d+)\]$/;
 var ARR_FILED_RE = /(.)?(?:\[(\d+)\])$/;
 var LEVELS = ['fatal', 'error', 'warn', 'info', 'debug'];
 var useCustomEditor = window.location.search.indexOf('useCustomEditor') !== -1;
+var isJSONText;
 
 function replaceCrLf(char) {
   return char === '\\r' ? '\r' : '\n';
@@ -34,12 +36,21 @@ function noop(_) {
 exports.noop = noop;
 
 function compare(v1, v2) {
-  return v1 == v2 ? 0 : (v1 > v2 ? -1 : 1);
+  return v1 == v2 ? 0 : v1 > v2 ? -1 : 1;
+}
+
+function comparePlugin(p1, p2) {
+  return (
+    compare(p1.priority, p2.priority) ||
+    compare(p2.mtime, p1.mtime) ||
+    (p1._key > p2._key ? 1 : -1)
+  );
 }
 
 exports.compare = compare;
+exports.comparePlugin = comparePlugin;
 
-exports.isString = function(str) {
+exports.isString = function (str) {
   return typeof str === 'string';
 };
 
@@ -47,10 +58,10 @@ function notEStr(str) {
   return str && typeof str === 'string';
 }
 
-exports.parseLogs = function(str) {
+exports.parseLogs = function (str) {
   try {
     str = JSON.parse(str);
-  } catch(e) {}
+  } catch (e) {}
   if (!Array.isArray(str)) {
     return;
   }
@@ -102,7 +113,7 @@ exports.getBase64FromHexText = function (str, check) {
   if (check) {
     return true;
   }
-  str = str.match(/../g).map(function(char) {
+  str = str.match(/../g).map(function (char) {
     return parseInt(char, 16);
   });
   try {
@@ -115,44 +126,55 @@ function stopDrag() {
   dragCallback = dragTarget = dragOffset = null;
 }
 
-$(document).on('mousedown', function(e) {
-  stopDrag();
-  var target = $(e.target);
-  Object.keys(dragCallbacks).some(function(selector) {
-    dragTarget = target.closest(selector);
-    if (dragTarget.length) {
-      dragCallback = dragCallbacks[selector];
-      return true;
-    }
-    dragTarget = null;
-  });
+$(document)
+  .on('mousedown', function (e) {
+    stopDrag();
+    var target = $(e.target);
+    Object.keys(dragCallbacks).some(function (selector) {
+      dragTarget = target.closest(selector);
+      if (dragTarget.length) {
+        dragCallback = dragCallbacks[selector];
+        return true;
+      }
+      dragTarget = null;
+    });
 
-  if (!dragTarget || !dragCallback) {
-    return;
-  }
-  dragOffset = e;
-  e.preventDefault();
-}).on('mousemove', function(e) {
-  if (!dragTarget) {
-    return;
-  }
-  dragCallback.forEach(function(callback) {
-    callback(dragTarget, e.clientX - dragOffset.clientX,
-        e.clientY - dragOffset.clientY, dragOffset.clientX, dragOffset.clientY);
+    if (!dragTarget || !dragCallback) {
+      return;
+    }
+    dragOffset = e;
+    e.preventDefault();
+  })
+  .on('mousemove', function (e) {
+    if (!dragTarget) {
+      return;
+    }
+    dragCallback.forEach(function (callback) {
+      callback(
+        dragTarget,
+        e.clientX - dragOffset.clientX,
+        e.clientY - dragOffset.clientY,
+        dragOffset.clientX,
+        dragOffset.clientY
+      );
+    });
+    dragOffset = e;
+  })
+  .on('mouseup', stopDrag)
+  .on('mouseout', function (e) {
+    !e.relatedTarget && stopDrag();
   });
-  dragOffset = e;
-}).on('mouseup', stopDrag)
-.on('mouseout', function(e) {
-  !e.relatedTarget && stopDrag();
-});
 
 function addDragEvent(selector, callback) {
-  if (!selector || typeof callback != 'function'
-      || typeof selector != 'string'
-          || !(selector = $.trim(selector))) {
+  if (
+    !selector ||
+    typeof callback != 'function' ||
+    typeof selector != 'string' ||
+    !(selector = $.trim(selector))
+  ) {
     return;
   }
-  var callbacks = dragCallbacks[selector] = dragCallbacks[selector] || [];
+  var callbacks = (dragCallbacks[selector] = dragCallbacks[selector] || []);
   if ($.inArray(callback, callbacks) == -1) {
     callbacks.push(callback);
   }
@@ -221,14 +243,26 @@ function getServerIp(modal) {
     if (res.phost && res.phost != ip) {
       ip = res.phost + ', ' + ip;
     }
-    var realEnv = decodeURIComponentSafe(getProperty(res, 'headers.x-whistle-response-for'));
+    var realEnv = decodeURIComponentSafe(
+      getProperty(res, 'headers.x-whistle-response-for')
+    );
     if (realEnv) {
-      if (realEnv !== ip && realEnv.trim().split(/\s*,\s*/).indexOf(ip) === -1) {
+      if (
+        realEnv !== ip &&
+        realEnv
+          .trim()
+          .split(/\s*,\s*/)
+          .indexOf(ip) === -1
+      ) {
         ip = realEnv + ', ' + ip;
       } else {
         ip = realEnv;
       }
-      modal.serverIp = ip.trim().split(/\s*,\s*/).filter(noop).join(', ');
+      modal.serverIp = ip
+        .trim()
+        .split(/\s*,\s*/)
+        .filter(noop)
+        .join(', ');
     }
   }
   return modal.serverIp || ip;
@@ -237,25 +271,24 @@ function getServerIp(modal) {
 exports.getServerIp = getServerIp;
 
 function getBoolean(val) {
-
   return !(!val || val === 'false');
 }
 
 exports.getBoolean = getBoolean;
 
-exports.showSystemError = function(xhr) {
+exports.showSystemError = function (xhr) {
   xhr = xhr || {};
   var status = xhr.status;
   if (!status) {
-    return alert('Please check the proxy settings or whether whistle has been started.');
+    return win.alert(
+      'Please check the proxy settings or whether whistle has been started.'
+    );
   }
-  if (status == 401) {
-    return alert('You do not have permission to operate.');
+  var msg = STATUS_CODES[status];
+  if (msg) {
+    return win.alert('[' + status + '] ' + msg + '.');
   }
-  if (status == 413) {
-    return alert('The content is too large.');
-  }
-  alert('Server internal error, try again later.');
+  win.alert('[' + status + '] Unknown error, try again later.');
 };
 
 exports.getClasses = function getClasses(obj) {
@@ -270,12 +303,14 @@ function getRawType(type) {
   if (type && typeof type != 'string') {
     type = type['content-type'] || type.contentType;
   }
-  return typeof type === 'string' ? type.split(';')[0].trim().toLowerCase() : '';
+  return typeof type === 'string'
+    ? type.split(';')[0].trim().toLowerCase()
+    : '';
 }
 
 exports.getRawType = getRawType;
 
-exports.getExtension = function(headers) {
+exports.getExtension = function (headers) {
   var suffix = getContentType(headers);
   var type;
   if (suffix === 'XML') {
@@ -285,11 +320,13 @@ exports.getExtension = function(headers) {
     }
   }
   if (suffix !== 'IMG') {
-    return suffix ? '.' + (suffix === 'TEXT' ? 'txt' : suffix.toLowerCase()) : '';
+    return suffix
+      ? '.' + (suffix === 'TEXT' ? 'txt' : suffix.toLowerCase())
+      : '';
   }
   type = type || getRawType(headers);
   type = type.substring(type.indexOf('/') + 1).toLowerCase();
-  return /\w+/.test(type) ? '.' + RegExp['$&'] : ''; 
+  return /\w+/.test(type) ? '.' + RegExp['$&'] : '';
 };
 
 function getContentType(type) {
@@ -337,9 +374,9 @@ function getHost(url) {
   if (!url) {
     return '';
   }
-  var start = url.indexOf(':\/\/');
+  var start = url.indexOf('://');
   start = start == -1 ? 0 : start + 3;
-  var end = url.indexOf('\/', start);
+  var end = url.indexOf('/', start);
   url = end == -1 ? url.substring(start) : url.substring(start, end);
   return url;
 }
@@ -350,8 +387,11 @@ exports.hasBody = function hasBody(res, req) {
     return false;
   }
   var statusCode = res.statusCode;
-  return !(statusCode == 204 || (statusCode >= 300 && statusCode < 400) ||
-    (100 <= statusCode && statusCode <= 199));
+  return !(
+    statusCode == 204 ||
+    (statusCode >= 300 && statusCode < 400) ||
+    (100 <= statusCode && statusCode <= 199)
+  );
 };
 
 exports.getHostname = function getHostname(url) {
@@ -363,11 +403,24 @@ exports.getHostname = function getHostname(url) {
 exports.getHost = getHost;
 
 exports.getProtocol = function getProtocol(url) {
-  var index = url.indexOf(':\/\/');
+  var index = url.indexOf('://');
   return index == -1 ? 'TUNNEL' : url.substring(0, index).toUpperCase();
 };
 
-exports.ensureVisible = function(elem, container, init) {
+
+exports.getTransProto = function(req) {
+  var headers = req.headers;
+  var proto = headers && headers['x-whistle-transport-protocol'];
+  if (!proto || typeof proto !== 'string' || proto.length > 33) {
+    return;
+  }
+  try {
+    return decodeURIComponent(proto).toUpperCase();
+  } catch (e) {}
+  return proto.toUpperCase();
+};
+
+exports.ensureVisible = function (elem, container, init) {
   elem = $(elem);
   container = $(container);
   var top = elem.offset().top - container.offset().top;
@@ -408,7 +461,7 @@ function parseQueryString(str, delimiter, seperator, decode, donotAllowRepeat) {
   }
   delimiter = delimiter || '&';
   seperator = seperator || '=';
-  str.split(delimiter).forEach(function(pair) {
+  str.split(delimiter).forEach(function (pair) {
     pair = pair.split(seperator);
     var key = pair[0];
     var value = pair.slice(1).join('=');
@@ -420,11 +473,11 @@ function parseQueryString(str, delimiter, seperator, decode, donotAllowRepeat) {
       }
       try {
         value = decode ? decode(val) : value;
-      } catch(e) {}
+      } catch (e) {}
       try {
         key = decode ? decode(k) : key;
-      } catch(e) {}
-      if (!donotAllowRepeat && (key in result)) {
+      } catch (e) {}
+      if (!donotAllowRepeat && key in result) {
         var curVal = result[key];
         if (Array.isArray(curVal)) {
           curVal.push(value);
@@ -449,30 +502,36 @@ function objectToString(obj, rawNames, noEncoding) {
   var keys = Object.keys(obj);
   var index = noEncoding ? keys.indexOf('content-encoding') : -1;
   index !== -1 && keys.splice(index, 1);
-  return keys.map(function(key) {
-    var value = obj[key];
-    key = rawNames && rawNames[key] || key;
-    if (!Array.isArray(value)) {
-      return key + ': ' + value;
-    }
-    return value.map(function(val) {
-      return key + ': ' + val;
-    }).join('\r\n');
-  }).join('\r\n');
+  return keys
+    .map(function (key) {
+      var value = obj[key];
+      key = (rawNames && rawNames[key]) || key;
+      if (!Array.isArray(value)) {
+        return key + ': ' + value;
+      }
+      return value
+        .map(function (val) {
+          return key + ': ' + val;
+        })
+        .join('\r\n');
+    })
+    .join('\r\n');
 }
 
 exports.objectToString = objectToString;
 
 function toLowerCase(str) {
-  return typeof str == 'string' ?  str.trim().toLowerCase() : str;
+  return typeof str == 'string' ? str.trim().toLowerCase() : str;
 }
 
 function getContentEncoding(headers) {
-  var encoding = toLowerCase(headers && headers['content-encoding'] || headers);
+  var encoding = toLowerCase(
+    (headers && headers['content-encoding']) || headers
+  );
   return encoding === 'gzip' || encoding === 'deflate' ? encoding : null;
 }
 
-exports.getOriginalReqHeaders = function(item) {
+exports.getOriginalReqHeaders = function (item) {
   var req = item.req;
   var headers = $.extend({}, req.headers, item.rulesHeaders, true);
   if (item.clientId && !headers['x-whistle-client-id']) {
@@ -491,7 +550,7 @@ function removeProtocol(url) {
 
 exports.removeProtocol = removeProtocol;
 
-exports.getPath = function(url) {
+exports.getPath = function (url) {
   if (!url) {
     return '';
   }
@@ -514,6 +573,7 @@ var parseJ = function (str, resolve) {
 exports.evalJson = evalJson;
 
 function parseJSON(str, resolve) {
+  isJSONText = false;
   if (typeof str !== 'string' || !(str = str.trim())) {
     return;
   }
@@ -521,11 +581,15 @@ function parseJSON(str, resolve) {
     if (!/({[\w\W]*}|\[[\w\W]*\])/.test(str)) {
       return;
     }
-    str = RegExp.$1;
+    if (str === RegExp.$1) {
+      isJSONText = true;
+    } else {
+      str = RegExp.$1;
+    }
   }
   try {
     return parseJ(str, resolve);
-  } catch(e) {
+  } catch (e) {
     return evalJson(str);
   }
 }
@@ -542,7 +606,7 @@ function parseLinesJSON(text) {
     return null;
   }
   var result;
-  text.split(/\r\n|\n|\r/g).forEach(function(line) {
+  text.split(/\r\n|\n|\r/g).forEach(function (line) {
     if (!(line = line.trim())) {
       return;
     }
@@ -557,11 +621,15 @@ function parseLinesJSON(text) {
       if (value) {
         var fv = value[0];
         var lv = value[value.length - 1];
-        if (fv === lv) { 
+        if (fv === lv) {
           if (fv === '"' || fv === '\'' || fv === '`') {
             value = value.slice(1, -1);
           }
-          if (value && fv === '`' && (value.indexOf('\\n') !== -1 || value.indexOf('\\r') !== -1)) {
+          if (
+            value &&
+            fv === '`' &&
+            (value.indexOf('\\n') !== -1 || value.indexOf('\\r') !== -1)
+          ) {
             value = value.replace(RAW_CRLF_RE, replaceCrLf);
           }
         } else if (value === '0') {
@@ -599,7 +667,7 @@ function parseLinesJSON(text) {
           }
         }
         if (keys.length) {
-          keys.reverse().forEach(function(key) {
+          keys.reverse().forEach(function (key) {
             var obj;
             if (ARR_FILED_RE.test(key)) {
               var idx2 = RegExp.$2;
@@ -643,8 +711,8 @@ function parseLinesJSON(text) {
   return result || {};
 }
 
-exports.parseJSON2 = function(str) {
-  return  parseJSON(str) || parseLinesJSON(str);
+exports.parseJSON2 = function (str) {
+  return parseJSON(str) || parseLinesJSON(str);
 };
 
 function resolveJSON(str, decode) {
@@ -655,10 +723,10 @@ function resolveJSON(str, decode) {
   }
   try {
     return parseJSON(decode(str), true);
-  } catch(e) {}
+  } catch (e) {}
 }
 
-exports.unique = function(arr, reverse) {
+exports.unique = function (arr, reverse) {
   var result = [];
   if (reverse) {
     for (var i = arr.length - 1; i >= 0; i--) {
@@ -668,7 +736,7 @@ exports.unique = function(arr, reverse) {
       }
     }
   } else {
-    arr.forEach(function(item) {
+    arr.forEach(function (item) {
       if (result.indexOf(item) == -1) {
         result.push(item);
       }
@@ -678,7 +746,7 @@ exports.unique = function(arr, reverse) {
   return result;
 };
 
-exports.getFilename = function(item, notEmpty) {
+exports.getFilename = function (item, notEmpty) {
   var url = item.url;
   if (item.isHttps) {
     return url;
@@ -711,65 +779,65 @@ exports.getFilename = function(item, notEmpty) {
 };
 
 var STATUS_CODES = {
-  100 : 'Continue',
-  101 : 'Switching Protocols',
-  102 : 'Processing',                 // RFC 2518, obsoleted by RFC 4918
-  200 : 'OK',
-  201 : 'Created',
-  202 : 'Accepted',
-  203 : 'Non-Authoritative Information',
-  204 : 'No Content',
-  205 : 'Reset Content',
-  206 : 'Partial Content',
-  207 : 'Multi-Status',               // RFC 4918
-  208 : 'Already Reported',
-  226 : 'IM Used',
-  300 : 'Multiple Choices',
-  301 : 'Moved Permanently',
-  302 : 'Moved Temporarily',
-  303 : 'See Other',
-  304 : 'Not Modified',
-  305 : 'Use Proxy',
-  307 : 'Temporary Redirect',
-  308 : 'Permanent Redirect',         // RFC 7238
-  400 : 'Bad Request',
-  401 : 'Unauthorized',
-  402 : 'Payment Required',
-  403 : 'Forbidden',
-  404 : 'Not Found',
-  405 : 'Method Not Allowed',
-  406 : 'Not Acceptable',
-  407 : 'Proxy Authentication Required',
-  408 : 'Request Time-out',
-  409 : 'Conflict',
-  410 : 'Gone',
-  411 : 'Length Required',
-  412 : 'Precondition Failed',
-  413 : 'Request Entity Too Large',
-  414 : 'Request-URI Too Large',
-  415 : 'Unsupported Media Type',
-  416 : 'Requested Range Not Satisfiable',
-  417 : 'Expectation Failed',
-  418 : 'I\'m a teapot',              // RFC 2324
-  422 : 'Unprocessable Entity',       // RFC 4918
-  423 : 'Locked',                     // RFC 4918
-  424 : 'Failed Dependency',          // RFC 4918
-  425 : 'Unordered Collection',       // RFC 4918
-  426 : 'Upgrade Required',           // RFC 2817
-  428 : 'Precondition Required',      // RFC 6585
-  429 : 'Too Many Requests',          // RFC 6585
-  431 : 'Request Header Fields Too Large',// RFC 6585
-  500 : 'Internal Server Error',
-  501 : 'Not Implemented',
-  502 : 'Bad Gateway',
-  503 : 'Service Unavailable',
-  504 : 'Gateway Time-out',
-  505 : 'HTTP Version Not Supported',
-  506 : 'Variant Also Negotiates',    // RFC 2295
-  507 : 'Insufficient Storage',       // RFC 4918
-  509 : 'Bandwidth Limit Exceeded',
-  510 : 'Not Extended',               // RFC 2774
-  511 : 'Network Authentication Required' // RFC 6585
+  100: 'Continue',
+  101: 'Switching Protocols',
+  102: 'Processing', // RFC 2518, obsoleted by RFC 4918
+  200: 'OK',
+  201: 'Created',
+  202: 'Accepted',
+  203: 'Non-Authoritative Information',
+  204: 'No Content',
+  205: 'Reset Content',
+  206: 'Partial Content',
+  207: 'Multi-Status', // RFC 4918
+  208: 'Already Reported',
+  226: 'IM Used',
+  300: 'Multiple Choices',
+  301: 'Moved Permanently',
+  302: 'Moved Temporarily',
+  303: 'See Other',
+  304: 'Not Modified',
+  305: 'Use Proxy',
+  307: 'Temporary Redirect',
+  308: 'Permanent Redirect', // RFC 7238
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  402: 'Payment Required',
+  403: 'Forbidden',
+  404: 'Not Found',
+  405: 'Method Not Allowed',
+  406: 'Not Acceptable',
+  407: 'Proxy Authentication Required',
+  408: 'Request Time-out',
+  409: 'Conflict',
+  410: 'Gone',
+  411: 'Length Required',
+  412: 'Precondition Failed',
+  413: 'Request Entity Too Large',
+  414: 'Request-URI Too Large',
+  415: 'Unsupported Media Type',
+  416: 'Requested Range Not Satisfiable',
+  417: 'Expectation Failed',
+  418: 'I\'m a teapot', // RFC 2324
+  422: 'Unprocessable Entity', // RFC 4918
+  423: 'Locked', // RFC 4918
+  424: 'Failed Dependency', // RFC 4918
+  425: 'Unordered Collection', // RFC 4918
+  426: 'Upgrade Required', // RFC 2817
+  428: 'Precondition Required', // RFC 6585
+  429: 'Too Many Requests', // RFC 6585
+  431: 'Request Header Fields Too Large', // RFC 6585
+  500: 'Internal Server Error',
+  501: 'Not Implemented',
+  502: 'Bad Gateway',
+  503: 'Service Unavailable',
+  504: 'Gateway Time-out',
+  505: 'HTTP Version Not Supported',
+  506: 'Variant Also Negotiates', // RFC 2295
+  507: 'Insufficient Storage', // RFC 4918
+  509: 'Bandwidth Limit Exceeded',
+  510: 'Not Extended', // RFC 2774
+  511: 'Network Authentication Required' // RFC 6585
 };
 
 function getStatusMessage(res) {
@@ -785,8 +853,10 @@ function getStatusMessage(res) {
 exports.getStatusMessage = getStatusMessage;
 
 function isUrlEncoded(req) {
-
-  return /^post$/i.test(req.method) && /urlencoded/i.test(req.headers && req.headers['content-type']);
+  return (
+    /^post$/i.test(req.method) &&
+    /urlencoded/i.test(req.headers && req.headers['content-type'])
+  );
 }
 
 exports.isUrlEncoded = isUrlEncoded;
@@ -797,14 +867,16 @@ function toString(value) {
 
 exports.toString = toString;
 
-
 function openEditor(value) {
-  if (useCustomEditor && typeof window.customWhistleEditor === 'function'
-    && window.customWhistleEditor(value) !== false) {
+  if (
+    useCustomEditor &&
+    typeof window.customWhistleEditor === 'function' &&
+    window.customWhistleEditor(value) !== false
+  ) {
     return;
   }
   var win = window.open('editor.html');
-  win.getValue = function() {
+  win.getValue = function () {
     return value;
   };
   if (win.setValue) {
@@ -830,7 +902,7 @@ function escapeFn(matched) {
   return entities[matched];
 }
 
-exports.escape = function(str) {
+exports.escape = function (str) {
   if (str == null) {
     return str;
   }
@@ -851,7 +923,7 @@ function findArray(arr, cb) {
 }
 exports.findArray = findArray;
 
-exports.isFocusEditor = function() {
+exports.isFocusEditor = function () {
   var activeElement = document.activeElement;
   var nodeName = activeElement && activeElement.nodeName;
   if (nodeName !== 'INPUT' && nodeName !== 'TEXTAREA') {
@@ -860,7 +932,7 @@ exports.isFocusEditor = function() {
   return !activeElement.readOnly && !activeElement.disabled;
 };
 
-exports.getMenuPosition = function(e, menuWidth, menuHeight) {
+exports.getMenuPosition = function (e, menuWidth, menuHeight) {
   var left = e.pageX;
   var top = e.pageY;
   var docElem = document.documentElement;
@@ -872,10 +944,6 @@ exports.getMenuPosition = function(e, menuWidth, menuHeight) {
     top = Math.max(top - menuHeight, window.scrollY + 1);
   }
   return { top: top, left: left, marginRight: clientWidth - left };
-};
-
-exports.canReplay = function(item) {
-  return !item.isHttps || item.req.headers['x-whistle-policy'] === 'tunnel' || /^wss?:/.test(item.url);
 };
 
 function socketIsClosed(reqData) {
@@ -890,7 +958,7 @@ function socketIsClosed(reqData) {
 
 exports.socketIsClosed = socketIsClosed;
 
-exports.canAbort = function(item) {
+exports.canAbort = function (item) {
   if (!item.lost && !item.endTime) {
     return true;
   }
@@ -900,7 +968,7 @@ exports.canAbort = function(item) {
   return !!item.frames && !socketIsClosed(item);
 };
 
-exports.asCURL = function(item) {
+exports.asCURL = function (item) {
   if (!item) {
     return item;
   }
@@ -910,8 +978,12 @@ exports.asCURL = function(item) {
   var result = [['curl', '-X', method, JSON.stringify(url)]];
   var headers = req.headers;
   var rawHeaderNames = req.rawHeaderNames || {};
-  Object.keys(headers).forEach(function(key) {
-    if (key === 'content-length' || key === 'content-encoding' || key === 'accept-encoding') {
+  Object.keys(headers).forEach(function (key) {
+    if (
+      key === 'content-length' ||
+      key === 'content-encoding' ||
+      key === 'accept-encoding'
+    ) {
       return;
     }
     result.push(['-H', JSON.stringify((rawHeaderNames[key] || key) + ': ' + headers[key])]);
@@ -926,11 +998,11 @@ exports.asCURL = function(item) {
   return result.map(function(item) {return item.join(' ');}).join(' \\\n');
 };
 
-exports.parseHeadersFromHar = function(list) {
+exports.parseHeadersFromHar = function (list) {
   var headers = {};
   var rawHeaderNames = {};
   if (Array.isArray(list)) {
-    list.forEach(function(header) {
+    list.forEach(function (header) {
       var name = header.name;
       var key = name.toLowerCase();
       headers[key] = header.value;
@@ -943,11 +1015,11 @@ exports.parseHeadersFromHar = function(list) {
   };
 };
 
-exports.getTimeFromHar = function(time) {
+exports.getTimeFromHar = function (time) {
   return time > 0 ? time : 0;
 };
 
-exports.parseKeyword = function(keyword) {
+exports.parseKeyword = function (keyword) {
   keyword = keyword.toLowerCase().split(/\s+/g);
   var result = {};
   var index = 0;
@@ -984,7 +1056,7 @@ function showLog(item) {
   item.hide = false;
 }
 
-exports.hasVisibleLog = function(list) {
+exports.hasVisibleLog = function (list) {
   var len = list.length;
   if (!len) {
     return false;
@@ -995,11 +1067,11 @@ exports.hasVisibleLog = function(list) {
     }
   }
 };
-exports.trimLogList = function(list, overflow, hasKeyword) {
+exports.trimLogList = function (list, overflow, hasKeyword) {
   var len = list.length;
   if (hasKeyword) {
     var i = 0;
-    while(overflow > 0 && i < len) {
+    while (overflow > 0 && i < len) {
       if (list[i].hide) {
         --len;
         --overflow;
@@ -1033,7 +1105,7 @@ function toLocaleString(date) {
 
 exports.toLocaleString = toLocaleString;
 
-exports.filterLogList = function(list, keyword) {
+exports.filterLogList = function (list, keyword) {
   if (!list) {
     return;
   }
@@ -1041,12 +1113,17 @@ exports.filterLogList = function(list, keyword) {
     list.forEach(showLog);
     return;
   }
-  list.forEach(function(log) {
+  list.forEach(function (log) {
     var level = keyword.level;
     if (level && log.level !== level) {
       log.hide = true;
     } else {
-      var text = 'Date: ' + toLocaleString(new Date(log.date)) + log.logId + '\r\n' + log.text;
+      var text =
+        'Date: ' +
+        toLocaleString(new Date(log.date)) +
+        log.logId +
+        '\r\n' +
+        log.text;
       log.hide = checkLogText(text, keyword);
     }
   });
@@ -1054,28 +1131,31 @@ exports.filterLogList = function(list, keyword) {
 
 exports.checkLogText = checkLogText;
 
-exports.scrollAtBottom = function(con, ctn) {
+exports.scrollAtBottom = function (con, ctn) {
   return con.scrollTop + con.offsetHeight + 5 > ctn.offsetHeight;
 };
 
-exports.triggerListChange = function(name, data) {
+exports.triggerListChange = function (name, data) {
   try {
-    var onChange = window.parent[name === 'rules' ? 'onWhistleRulesChange' : 'onWhistleValuesChange'];
+    var onChange =
+      window.parent[
+        name === 'rules' ? 'onWhistleRulesChange' : 'onWhistleValuesChange'
+      ];
     if (typeof onChange === 'function') {
       onChange(data);
     }
-  } catch(e) {}
+  } catch (e) {}
 };
 
 var REG_EXP = /^\/(.+)\/(i?m?|m?i)$/;
-exports.toRegExp = function(regExp) {
+exports.toRegExp = function (regExp) {
   if (!regExp) {
     return;
   }
   regExp = REG_EXP.test(regExp);
   try {
     regExp = regExp && new RegExp(RegExp.$1, RegExp.$2);
-  } catch(e) {
+  } catch (e) {
     return;
   }
   return regExp;
@@ -1111,14 +1191,14 @@ function getHexString(arr) {
   return result.join('\n');
 }
 
-var COMP_RE = /%[a-f\d]{2}|./ig;
+var COMP_RE = /%[a-f\d]{2}|./gi;
 var CHECK_COMP_RE = /%[a-f\d]{2}/i;
 var SPACE_RE = /\+/g;
 var gbkDecoder;
 if (window.TextDecoder) {
   try {
     gbkDecoder = new TextDecoder('GB18030');
-  } catch(e) {}
+  } catch (e) {}
 }
 
 function decodeURIComponentSafe(str, isUtf8) {
@@ -1128,11 +1208,11 @@ function decodeURIComponentSafe(str, isUtf8) {
   var result = str.replace(SPACE_RE, ' ');
   try {
     return decodeURIComponent(result);
-  } catch(e) {}
+  } catch (e) {}
   if (!isUtf8 && gbkDecoder && CHECK_COMP_RE.test(result)) {
     try {
       var arr = [];
-      result.replace(COMP_RE, function(code) {
+      result.replace(COMP_RE, function (code) {
         if (code.length > 1) {
           arr.push(parseInt(code.substring(1), 16));
         } else {
@@ -1142,7 +1222,7 @@ function decodeURIComponentSafe(str, isUtf8) {
       if (!isUtf8(arr)) {
         return gbkDecoder.decode(new window.Uint8Array(arr));
       }
-    } catch(e) {}
+    } catch (e) {}
   }
   return str;
 }
@@ -1152,7 +1232,7 @@ exports.decodeURIComponentSafe = decodeURIComponentSafe;
 function safeEncodeURIComponent(str) {
   try {
     return encodeURIComponent(str);
-  } catch(e) {}
+  } catch (e) {}
   return str;
 }
 exports.encodeURIComponent = safeEncodeURIComponent;
@@ -1160,7 +1240,7 @@ exports.encodeURIComponent = safeEncodeURIComponent;
 function base64toBytes(base64) {
   try {
     return toByteArray(base64);
-  } catch(e) {}
+  } catch (e) {}
   return [];
 }
 
@@ -1172,17 +1252,19 @@ function decodeBase64(base64) {
   if (!isUtf8(arr)) {
     try {
       result.text = gbkDecoder.decode(arr);
-    } catch(e) {}
+    } catch (e) {}
   }
   if (!result.text) {
     try {
       result.text = base64Decode(base64);
-    } catch(e) {
+    } catch (e) {
       result.text = base64;
     }
   }
   return result;
 }
+
+exports.decodeBase64 = decodeBase64;
 
 function getMediaType(res) {
   var type = getRawType(res.headers);
@@ -1217,7 +1299,7 @@ function getClosedMsg(data) {
 }
 
 function initData(data, isReq) {
-  if ((data[BODY_KEY] && data[HEX_KEY])) {
+  if (data[BODY_KEY] && data[HEX_KEY]) {
     return;
   }
   if (!data.base64) {
@@ -1231,7 +1313,8 @@ function initData(data, isReq) {
         data.base64 = base64Encode(body);
         data[BODY_KEY] = body;
         data[HEX_KEY] = getHexFromBase64(data.base64);
-      } catch(e) {} finally {
+      } catch (e) {
+      } finally {
         delete data.body;
         delete data.bin;
         delete data.text;
@@ -1252,14 +1335,21 @@ function initData(data, isReq) {
   }
 }
 
-exports.getJson = function(data, isReq, decode) {
+exports.getJson = function (data, isReq, decode) {
   if (data[JSON_KEY] == null) {
     var body = getBody(data, isReq);
     body = body && resolveJSON(body, decode);
-    data[JSON_KEY] = body ? {
-      json: body,
-      str: (window._$hasBigNumberJson ? json2 : JSON).stringify(body, null, '    ')
-    } : '';
+    data[JSON_KEY] = body
+      ? {
+        json: body,
+        isJSONText: isJSONText,
+        str: (window._$hasBigNumberJson ? json2 : JSON).stringify(
+            body,
+            null,
+            '    '
+          )
+      }
+      : '';
   }
   return data[JSON_KEY];
 };
@@ -1270,7 +1360,7 @@ function getBody(data, isReq) {
 }
 exports.getBody = getBody;
 
-exports.getHex = function(data) {
+exports.getHex = function (data) {
   initData(data);
   return data[HEX_KEY] || '';
 };
@@ -1286,7 +1376,7 @@ function getCharset(res) {
   return 'UTF8';
 }
 
-exports.openPreview = function(data) {
+exports.openPreview = function (data) {
   if (!data) {
     return;
   }
@@ -1305,7 +1395,10 @@ exports.openPreview = function(data) {
       url = 'http://' + url;
     }
     var charset = isImg ? 'UTF8' : getCharset(res);
-    url += (url.indexOf('?') === -1 ? '' : '&') + '???WHISTLE_PREVIEW_CHARSET=' + charset;
+    url +=
+      (url.indexOf('?') === -1 ? '' : '&') +
+      '???WHISTLE_PREVIEW_CHARSET=' +
+      charset;
     window.open(url + '???#' + (isImg ? getBody(res) : res.base64));
   }
 };
@@ -1318,7 +1411,7 @@ function parseRawJson(str, quite) {
     }
     !quite && message.error('Error: not a json object.');
   } catch (e) {
-    if (json = evalJson(str)) {
+    if ((json = evalJson(str))) {
       return json;
     }
     !quite && message.error('Error: ' + e.message);
@@ -1330,7 +1423,7 @@ exports.parseRawJson = parseRawJson;
 function parseHeaders(str) {
   var headers = {};
   str = str.split(CRLF_RE);
-  str.forEach(function(line) {
+  str.forEach(function (line) {
     var index = line.indexOf(':');
     var value = '';
     if (index != -1) {
@@ -1350,7 +1443,7 @@ function parseHeaders(str) {
   return headers;
 }
 
-exports.parseHeaders = function(str) {
+exports.parseHeaders = function (str) {
   str = typeof str === 'string' ? str.trim() : null;
   if (!str) {
     return {};
@@ -1363,23 +1456,34 @@ function hasRequestBody(method) {
     return false;
   }
   method = method.toUpperCase();
-  return !(method === 'GET' || method === 'HEAD' ||
-  method === 'OPTIONS' || method === 'CONNECT');
+  return !(
+    method === 'GET' ||
+    method === 'HEAD' ||
+    method === 'OPTIONS' ||
+    method === 'CONNECT'
+  );
 }
 
 exports.hasRequestBody = hasRequestBody;
 
 var NON_LATIN1_RE = /([^\x00-\xFF]|[\r\n%])/g;
-exports.encodeNonLatin1Char = function(str) {
+exports.encodeNonLatin1Char = function (str) {
   /*eslint no-control-regex: "off"*/
-  return str && typeof str === 'string' ? str.replace(NON_LATIN1_RE, safeEncodeURIComponent) : '';
+  return str && typeof str === 'string'
+    ? str.replace(NON_LATIN1_RE, safeEncodeURIComponent)
+    : '';
 };
 
 function formatSemer(ver) {
-  return ver ? ver.split('.').map(function(v) {
-    v = parseInt(v, 10) || 0;
-    return v > 9 ? v : '0' + v;
-  }).join('.') : '';
+  return ver
+    ? ver
+        .split('.')
+        .map(function (v) {
+          v = parseInt(v, 10) || 0;
+          return v > 9 ? v : '0' + v;
+        })
+        .join('.')
+    : '';
 }
 
 function compareVersion(v1, v2) {
@@ -1434,7 +1538,7 @@ function triggerPageChange(name) {
 exports.triggerPageChange = triggerPageChange;
 
 var curActiveRules;
-exports.triggerRulesActiveChange = function(name) {
+exports.triggerRulesActiveChange = function (name) {
   if (curActiveRules === name) {
     return;
   }
@@ -1447,7 +1551,7 @@ exports.triggerRulesActiveChange = function(name) {
   } catch (e) {}
 };
 var curActiveValues;
-exports.triggerValuesActiveChange = function(name) {
+exports.triggerValuesActiveChange = function (name) {
   if (curActiveValues === name) {
     return;
   }
@@ -1470,28 +1574,28 @@ function changePageName(name) {
 
 exports.changePageName = changePageName;
 
-exports.getTempName = function() {
+exports.getTempName = function () {
   return Date.now() + '' + Math.floor(Math.random() * 10000);
 };
 
 function readFile(file, callback, type) {
   var reader = new FileReader();
   var done;
-  var execCallback = function(err, result) {
+  var execCallback = function (err, result) {
     if (done) {
       return;
     }
     done = true;
     if (err) {
       reader.abort();
-      return alert(err.message);
+      return win.alert(err.message);
     }
     callback(result);
   };
   var isText = type === 'text';
   reader[isText ? 'readAsText' : 'readAsArrayBuffer'](file);
   reader.onerror = execCallback;
-  reader.onabort = function() {
+  reader.onabort = function () {
     execCallback(new Error('Aborted'));
   };
   reader.onload = function () {
@@ -1502,7 +1606,7 @@ function readFile(file, callback, type) {
         result = type === 'base64' ? fromByteArray(result) : result;
       }
       execCallback(null, result);
-    } catch(e) {
+    } catch (e) {
       execCallback(e);
     }
   };
@@ -1511,16 +1615,16 @@ function readFile(file, callback, type) {
 
 exports.readFile = readFile;
 
-exports.readFileAsBase64 = function(file, callback) {
+exports.readFileAsBase64 = function (file, callback) {
   return readFile(file, callback, 'base64');
 };
 
-exports.readFileAsText = function(file, callback) {
+exports.readFileAsText = function (file, callback) {
   return readFile(file, callback, 'text');
 };
 
-exports.addPluginMenus = function(item, list, maxTop, disabled) {
-  var pluginsList = item.list = list;
+exports.addPluginMenus = function (item, list, maxTop, disabled) {
+  var pluginsList = (item.list = list);
   var count = pluginsList.length;
   if (count) {
     item.hide = false;
@@ -1533,7 +1637,7 @@ exports.addPluginMenus = function(item, list, maxTop, disabled) {
           disabledOthers = false;
         }
       } else {
-        disabledOthers =  plugin.disabled = false;
+        disabledOthers = plugin.disabled = false;
       }
     }
     var top = count - 2;
@@ -1544,10 +1648,10 @@ exports.addPluginMenus = function(item, list, maxTop, disabled) {
   }
 };
 
-exports.parseImportData = function(data, modal, isValues) {
+exports.parseImportData = function (data, modal, isValues) {
   var list = [];
   var hasConflict;
-  Object.keys(data).forEach(function(name) {
+  Object.keys(data).forEach(function (name) {
     var value = data[name];
     if (value == null) {
       return;
@@ -1556,13 +1660,14 @@ exports.parseImportData = function(data, modal, isValues) {
       if (typeof value === 'object') {
         try {
           value = JSON.stringify(value, null, '  ');
-        } catch(e) {
+        } catch (e) {
           return;
         }
       } else {
         value = value + '';
       }
-    }if (typeof value !== 'string') {
+    }
+    if (typeof value !== 'string') {
       return;
     }
     var isConflict;
@@ -1581,7 +1686,7 @@ exports.parseImportData = function(data, modal, isValues) {
   return list;
 };
 
-exports.getSize = function(size) {
+exports.getSize = function (size) {
   if (size < 1024) {
     return size;
   }
@@ -1689,7 +1794,7 @@ function parseMultiHeader(header) {
   return result;
 }
 
-exports.isUploadForm = function(req) {
+exports.isUploadForm = function (req) {
   var type = req.headers && req.headers['content-type'];
   return UPLOAD_TYPE_RE.test(type);
 };
@@ -1697,11 +1802,11 @@ exports.isUploadForm = function(req) {
 function parseUploadBody(body, boundary) {
   var sep = '--' + boundary;
   var start = strToByteArray(sep + '\r\n');
-  var end = strToByteArray('\r\n' + sep );
+  var end = strToByteArray('\r\n' + sep);
   var len = start.length;
   var index = indexOfList(body, start);
   var result = [];
-  while(index >= 0) {
+  while (index >= 0) {
     index += len;
     var hIndex = indexOfList(body, BODY_SEP, index);
     if (hIndex === -1) {
@@ -1731,7 +1836,7 @@ function parseUploadBody(body, boundary) {
   return result;
 }
 
-exports.parseUploadBody = function(req) {
+exports.parseUploadBody = function (req) {
   if (!req.base64) {
     return;
   }
@@ -1763,15 +1868,78 @@ function getMultiPart(part) {
 }
 
 function getBoundary() {
-  return '----WhistleUploadForm' + Date.now().toString(16) + Math.floor(Math.random() * 100000000000).toString(16);
+  return (
+    '----WhistleUploadForm' +
+    Date.now().toString(16) +
+    Math.floor(Math.random() * 100000000000).toString(16)
+  );
 }
 
 var base64abc = [
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-  'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-  'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-  '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+  'A',
+  'B',
+  'C',
+  'D',
+  'E',
+  'F',
+  'G',
+  'H',
+  'I',
+  'J',
+  'K',
+  'L',
+  'M',
+  'N',
+  'O',
+  'P',
+  'Q',
+  'R',
+  'S',
+  'T',
+  'U',
+  'V',
+  'W',
+  'X',
+  'Y',
+  'Z',
+  'a',
+  'b',
+  'c',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'p',
+  'q',
+  'r',
+  's',
+  't',
+  'u',
+  'v',
+  'w',
+  'x',
+  'y',
+  'z',
+  '0',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '+',
+  '/'
 ];
 
 function bytesToBase64(bytes) {
@@ -1781,35 +1949,38 @@ function bytesToBase64(bytes) {
   for (i = 2; i < l; i += 3) {
     result += base64abc[bytes[i - 2] >> 2];
     result += base64abc[((bytes[i - 2] & 0x03) << 4) | (bytes[i - 1] >> 4)];
-    result += base64abc[((bytes[i - 1] & 0x0F) << 2) | (bytes[i] >> 6)];
-    result += base64abc[bytes[i] & 0x3F];
+    result += base64abc[((bytes[i - 1] & 0x0f) << 2) | (bytes[i] >> 6)];
+    result += base64abc[bytes[i] & 0x3f];
   }
-  if (i === l + 1) { // 1 octet yet to write
+  if (i === l + 1) {
+    // 1 octet yet to write
     result += base64abc[bytes[i - 2] >> 2];
     result += base64abc[(bytes[i - 2] & 0x03) << 4];
     result += '==';
   }
-  if (i === l) { // 2 octets yet to write
+  if (i === l) {
+    // 2 octets yet to write
     result += base64abc[bytes[i - 2] >> 2];
     result += base64abc[((bytes[i - 2] & 0x03) << 4) | (bytes[i - 1] >> 4)];
-    result += base64abc[(bytes[i - 1] & 0x0F) << 2];
+    result += base64abc[(bytes[i - 1] & 0x0f) << 2];
     result += '=';
   }
   return result;
 }
 
-exports.getMultiBody = function(fields) {
+exports.getMultiBody = function (fields) {
   var result;
   var boundary = getBoundary();
   var boundBuf = strToByteArray('--' + boundary + '\r\n');
-  fields.forEach(function(field) {
+  fields.forEach(function (field) {
     field = getMultiPart(field);
     if (field) {
       field = concatByteArray(boundBuf, field);
       result = result ? concatByteArray(result, field) : field;
     }
   });
-  result = result && concatByteArray(result, strToByteArray('--' + boundary + '--'));
+  result =
+    result && concatByteArray(result, strToByteArray('--' + boundary + '--'));
   return {
     boundary: boundary,
     length: result ? result.length : 0,
@@ -1820,6 +1991,8 @@ exports.getMultiBody = function(fields) {
 function padding(num) {
   return num < 10 ? '0' + num : num;
 }
+
+exports.padding = padding;
 
 function paddingMS(ms) {
   if (ms > 99) {
@@ -1846,7 +2019,7 @@ function formatDate(date) {
 
 exports.formatDate = formatDate;
 
-exports.formatTime = function(time) {
+exports.formatTime = function (time) {
   time = Math.floor(time / 1000);
   var sec = padding(time % 60);
   time = Math.floor(time / 60);
@@ -1866,7 +2039,7 @@ function parseResCookie(cookie) {
     secure: false
   };
   for (var i in cookie) {
-    switch(i.toLowerCase()) {
+    switch (i.toLowerCase()) {
     case 'domain':
       result.domain = cookie[i];
       break;
@@ -1907,11 +2080,11 @@ function objectToArray(obj, rawNames) {
   var result = [];
   if (obj) {
     rawNames = rawNames || EMPTY_OBJ;
-    Object.keys(obj).forEach(function(name) {
+    Object.keys(obj).forEach(function (name) {
       var value = obj[name];
       name = rawNames[name] || name;
       if (Array.isArray(value)) {
-        value.forEach(function(val) {
+        value.forEach(function (val) {
           result.push({
             name: name,
             value: val + ''
@@ -2016,7 +2189,7 @@ function toHarRes(item) {
   };
 }
 
-exports.toHar = function(item) {
+exports.toHar = function (item) {
   var time = -1;
   var dns = -1;
   var send = -1;
@@ -2043,6 +2216,16 @@ exports.toHar = function(item) {
     time: time,
     whistleRules: item.rules,
     whistleFwdHost: item.fwdHost,
+    whistleSniPlugin: item.sniPlugin,
+    whistleVersion: item.version,
+    whistleNodeVersion: item.nodeVersion,
+    whistleTimes: {
+      startTime: item.startTime,
+      dnsTime: item.dnsTime,
+      requestTime: item.requestTime,
+      responseTime: item.responseTime,
+      endTime: item.endTime
+    },
     request: toHarReq(item),
     response: toHarRes(item),
     frames: item.frames,
@@ -2062,7 +2245,7 @@ exports.toHar = function(item) {
   };
 };
 
-exports.getUrl = function(url) {
+exports.getUrl = function (url) {
   return url && url.indexOf('/') === -1 ? 'tunnel://' + url : url;
 };
 
@@ -2090,7 +2273,7 @@ function setPExpand(node, pExpand) {
   if (node.children) {
     node.pExpand = pExpand;
     pExpand = node.expand && pExpand;
-    node.children.forEach(function(child) {
+    node.children.forEach(function (child) {
       setPExpand(child, pExpand);
     });
   }
@@ -2110,6 +2293,6 @@ exports.expand = expand;
 exports.collapse = collapse;
 
 var PROTO_RE = /^((?:http|ws)s?:\/\/)[^/?]*/;
-exports.getRawUrl = function(item) {
+exports.getRawUrl = function (item) {
   return item.fwdHost && item.url.replace(PROTO_RE, '$1' + item.fwdHost);
 };

@@ -7,6 +7,8 @@ var properties = require('../../../lib/rules/util').properties;
 var PID = process.pid;
 var MAX_OBJECT_SIZE = 1024 * 1024 * 6;
 var index = 0;
+var dnsOverHttps = config.dnsOverHttps;
+var doh = !!dnsOverHttps;
 
 exports.getClientId = function() {
   if (index > 9999) {
@@ -23,6 +25,12 @@ exports.getServerInfo = function(req) {
   var info = {
     pid: PID,
     pInfo: proc,
+    dcc: config.disableCustomCerts,
+    dns: dnsOverHttps || config.dnsServer,
+    doh: doh,
+    bip: config.host,
+    df: config.dnsOptional,
+    r6: config.resolve6,
     version: config.version,
     cmdName: config.cmdName,
     hideLeftMenu: config.hideLeftMenu,
@@ -44,6 +52,7 @@ exports.getServerInfo = function(req) {
     isWin: util.isWin,
     port: config.port,
     realPort: config.realPort,
+    realHost: config.realHost,
     socksPort: config.socksPort,
     httpPort: config.httpPort,
     httpsPort: config.httpsPort,
@@ -57,7 +66,7 @@ exports.getServerInfo = function(req) {
       if (iface.internal) {
         return;
       }
-      info[iface.family == 'IPv4' ? 'ipv4' : 'ipv6'].push(iface.address);
+      info[iface.family == 'IPv4' || iface.family === 4 ? 'ipv4' : 'ipv6'].push(iface.address);
     });
   });
 
@@ -130,7 +139,7 @@ exports.formatDate = formatDate;
 exports.getClientIp = util.getClientIp;
 
 exports.sendGzip = function(req, res, data) {
-  if (req.clientIp === '127.0.0.1' || !util.canGzip(req)) {
+  if (!util.canGzip(req)) {
     return res.json(data);
   }
   gzip(JSON.stringify(data), function(err, result) {
@@ -139,7 +148,7 @@ exports.sendGzip = function(req, res, data) {
         res.json(data);
       } catch (e) {
         res.status(500).send(config.debugMode ?
-          '<pre>' + util.getErrorStack(err) + '</pre>' : 'Internal Server Error');
+          '<pre>' + util.encodeHtml(util.getErrorStack(err)) + '</pre>' : 'Internal Server Error');
       }
       return;
     }

@@ -1,7 +1,7 @@
 {
   "name": "whistle",
   "description": "HTTP, HTTP2, HTTPS, Websocket debugging proxy",
-  "version": "2.7.0",
+  "version": "2.9.20",
   "dataDirname": ".whistle",
   "localUIHost": "local.whistlejs.com",
   "port": 8899,
@@ -24,7 +24,6 @@
   ],
   "bin": {
     "whistle": "./bin/whistle.js",
-    "wisl": "./bin/whistle.js",
     "w2": "./bin/whistle.js",
     "wproxy": "./bin/whistle.js"
   },
@@ -34,41 +33,41 @@
     "url": "https://github.com/avwo/whistle.git"
   },
   "dependencies": {
-    "adm-zip": "0.4.11",
+    "adm-zip": "0.5.9",
     "async-limiter": "2.0.0",
     "basic-auth": "1.0.0",
     "body-parser": "^1.19.0",
     "colors": "1.1.2",
     "cookie": "^0.3.1",
     "express": "^4.17.1",
-    "extend": "^3.0.1",
+    "extend": "^3.0.2",
     "fs-extra2": "^1.0.0",
-    "hagent": "^0.7.5",
-    "hparser": "^0.3.2",
-    "iconv-lite": "0.4.7",
-    "json5": "^2.1.3",
+    "hagent": "^0.9.0",
+    "hparser": "^0.4.0",
+    "iconv-lite": "^0.4.24",
+    "json5": "^2.2.1",
     "lru-cache": "^4.1.1",
     "mime": "^1.6.0",
-    "multer2": "^1.0.1",
-    "node-forge": "^0.10.0",
+    "multer2": "^1.1.0",
+    "node-forge": "^1.3.0",
     "node-native-zip2": "^1.0.0",
     "node-pac": "^0.5.0",
     "parseurl": "^1.3.1",
-    "pfork": "^0.5.2",
-    "pipestream": "^0.7.1",
+    "pfork": "^0.6.0",
+    "pipestream": "^0.7.3",
     "q": "1.4.1",
     "safe-buffer": "^5.1.2",
     "sni": "1.0.0",
     "sockx": "^0.2.0",
-    "starting": "^7.0.1",
-    "weinre2": "^1.3.0",
-    "ws-parser": "^0.6.0",
+    "starting": "^8.0.1",
+    "weinre2": "^1.3.1",
+    "ws-parser": "^0.6.2",
     "xml2js": "^0.4.23"
   },
   "scripts": {
     "dev": "webpack --config ./biz/webui/htdocs/src/webpack.config -w",
     "start": "node bin/whistle.js run",
-    "test": "node test/index.test.js",
+    "test": "npm run lint && node test/index.test.js",
     "lint": "eslint *.js ./lib ./bin ./biz ./test ./docs/script",
     "lintfix": "eslint --fix *.js ./lib ./bin ./biz ./test ./docs/script",
     "cov": "node_modules/istanbul/lib/cli.js cover node_modules/.bin/tape -- test/index.test.js",
@@ -77,7 +76,7 @@
     "docs:dev": "vuepress dev docs"
   },
   "engines": {
-    "node": ">= 6"
+    "node": ">= 8"
   },
   "devDependencies": {
     "babel-core": "^6.7.6",
@@ -103,7 +102,7 @@
     "js-base64": "^2.4.5",
     "lodash.startcase": "^4.4.0",
     "prop-types": "^15.5.8",
-    "qrcode": "^1.2.0",
+    "qrcode": "1.2.0",
     "react": "^15.6.2",
     "react-base16-styling": "^0.5.1",
     "react-dom": "^15.6.2",
@@ -115,7 +114,6 @@
     "tape": "^4.6.0",
     "url-loader": "0.5.6",
     "webpack": "1.11.0",
-    "whistle.test": "*",
     "ws": "^1.1.4"
   }
 }
